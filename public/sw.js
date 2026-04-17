@@ -78,7 +78,11 @@ self.addEventListener('fetch', (event) => {
           caches.open(STATIC_CACHE).then((cache) => cache.put('/index.html', copy));
           return response;
         })
-        .catch(() => caches.match('/index.html').then((r) => r || caches.match('/')))
+        .catch(() =>
+          caches.match('/index.html')
+            .then((r) => r || caches.match('/'))
+            .then((r) => r || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/html' } }))
+         )
     );
     return;
   }
