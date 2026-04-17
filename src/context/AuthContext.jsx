@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { api } from '../services/api'
+import { authApi } from '../services/api'
 
 const AuthContext = createContext(null)
 
@@ -10,7 +10,6 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (token) {
-      api.setToken(token)
       loadUser()
     } else {
       setLoading(false)
@@ -19,7 +18,7 @@ export function AuthProvider({ children }) {
 
   const loadUser = async () => {
     try {
-      const userData = await api.get('/auth/me')
+      const userData = await authApi.me()
       setUser(userData)
     } catch (error) {
       console.error('Error loading user:', error)
@@ -30,16 +29,11 @@ export function AuthProvider({ children }) {
   }
 
   const login = async (email, password) => {
-    const formData = new URLSearchParams()
-    formData.append('username', email)
-    formData.append('password', password)
-
-    const response = await api.postForm('/auth/login', formData)
+    const response = await authApi.login(email, password)
     
     localStorage.setItem('token', response.access_token)
     setToken(response.access_token)
     setUser(response.user)
-    api.setToken(response.access_token)
     
     return response.user
   }
@@ -48,7 +42,6 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('token')
     setToken(null)
     setUser(null)
-    api.setToken(null)
   }
 
   return (

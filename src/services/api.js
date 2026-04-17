@@ -1,145 +1,341 @@
-// Configuración de la API
-const API_URL = import.meta.env.VITE_API_URL || 'https://apolodigital-inventario-production.up.railway.app/api/v1'
+import { offlineDB } from './offlineDB';
 
-class ApiService {
-  constructor() {
-    this.token = null
+const API_URL = import.meta.env.VITE_API_URL || 'https://apolodigital-inventario-production.up.railway.app/api/v1';
+
+// Helpers
+const getHeaders = () => {
+  const token = localStorage.getItem('token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token && { Authorization: `Bearer ${token}` }),
+  };
+};
+
+const handleResponse = async (response) => {
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Error ${response.status}`);
   }
+  return response.json();
+};
 
-  setToken(token) {
-    this.token = token
-  }
+// Verificar si estamos online
+const isOnline = () => navigator.onLine;
 
-  getHeaders(isFormData = false) {
-    const headers = {}
-    
-    if (!isFormData) {
-      headers['Content-Type'] = 'application/json'
-    }
-    
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`
-    }
-    
-    return headers
-  }
+// ============ AUTH API ============
+export const authApi = {
+  login: async (email, password) => {
+    const formData = new URLSearchParams();
+    formData.append('username', email);
+    formData.append('password', password);
 
-  async request(endpoint, options = {}) {
-    const url = `${API_URL}${endpoint}`
-    
-    const config = {
-      ...options,
-      headers: {
-        ...this.getHeaders(options.isFormData),
-        ...options.headers,
-      },
-    }
-
-    const response = await fetch(url, config)
-    
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Error de conexión' }))
-      throw new Error(error.detail || `Error ${response.status}`)
-    }
-
-    if (response.status === 204) {
-      return null
-    }
-
-    return response.json()
-  }
-
-  get(endpoint) {
-    return this.request(endpoint, { method: 'GET' })
-  }
-
-  post(endpoint, data) {
-    return this.request(endpoint, {
+    const response = await fetch(`${API_URL}/auth/login`, {
       method: 'POST',
-      body: JSON.stringify(data),
-    })
-  }
-
-  postForm(endpoint, formData) {
-    return this.request(endpoint, {
-      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData,
-      isFormData: true,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-    })
-  }
+    });
 
-  put(endpoint, data) {
-    return this.request(endpoint, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    })
-  }
+    return handleResponse(response);
+  },
 
-  delete(endpoint) {
-    return this.request(endpoint, { method: 'DELETE' })
-  }
-}
+  me: async () => {
+    const response = await fetch(`${API_URL}/auth/me`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+};
 
-export const api = new ApiService()
-
-// Funciones de conveniencia
+// ============ INVENTARIO API (con soporte offline) ============
 export const inventarioApi = {
-  // Categorías
-  getCategorias: () => api.get('/categorias'),
-  createCategoria: (data) => api.post('/categorias', data),
-  updateCategoria: (id, data) => api.put(`/categorias/${id}`, data),
-  deleteCategoria: (id) => api.delete(`/categorias/${id}`),
+  // Productos
+  getProductos: async (params = {}) => {
+    if (!isOnline()) {
+      console.log('[API] Offline - usando datos locales');
+      const productos = await offlineDB.getProductos();
+      return { items: productos, total: productos.length };
+    }
 
-  // Proveedores
-  getProveedores: () => api.get('/proveedores'),
-  createProveedor: (data) => api.post('/proveedores', data),
-  updateProveedor: (id, data) => api.put(`/proveedores/${id}`, data),
-  deleteProveedor: (id) => api.delete(`/proveedores/${id}`),
+    try {
+      const queryParams = new URLSearchParams(params);
+      const response = await fetch(`${API_URL}/productos?${queryParams}`, {
+        headers: getHeaders(),
+      });
+      const data = await handleResponse(response);
+      
+      // La API devuelve { items: [...], total, page, per_page, pages }
+      const productos = data.items || data || [];
+      
+      // Guardar en cache local
+      await offlineDB.saveProductos(productos);
+      
+      return data;
+    } catch (error) {
+      // Si falla la red, intentar desde cache
+      console.log('[API] Error de red, usando cache:', error.message);
+      const cached = await offlineDB.getProductos();
+      if (cached.length > 0) {
+        return { items: cached, total: cached.length };
+      }
+      throw error;
+    }
+  },
+
+  getProducto: async (id) => {
+    const response = await fetch(`${API_URL}/productos/${id}`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  createProducto: async (data) => {
+    const response = await fetch(`${API_URL}/productos`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  updateProducto: async (id, data) => {
+    const response = await fetch(`${API_URL}/productos/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  deleteProducto: async (id) => {
+    const response = await fetch(`${API_URL}/productos/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    });
+    if (!response.ok) throw new Error('Error al eliminar');
+    return true;
+  },
+
+  // Categorías
+  getCategorias: async () => {
+    if (!isOnline()) {
+      return offlineDB.getCategorias();
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/categorias`, {
+        headers: getHeaders(),
+      });
+      const categorias = await handleResponse(response);
+      await offlineDB.saveCategorias(categorias);
+      return categorias;
+    } catch (error) {
+      const cached = await offlineDB.getCategorias();
+      if (cached.length > 0) return cached;
+      throw error;
+    }
+  },
+
+  createCategoria: async (data) => {
+    const response = await fetch(`${API_URL}/categorias`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  updateCategoria: async (id, data) => {
+    const response = await fetch(`${API_URL}/categorias/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  deleteCategoria: async (id) => {
+    const response = await fetch(`${API_URL}/categorias/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    });
+    if (!response.ok) throw new Error('Error al eliminar');
+    return true;
+  },
 
   // Almacenes
-  getAlmacenes: () => api.get('/almacenes'),
+  getAlmacenes: async () => {
+    if (!isOnline()) {
+      return offlineDB.getAlmacenes();
+    }
 
-  // Productos
-  getProductos: (params = {}) => {
-    const query = new URLSearchParams(params).toString()
-    return api.get(`/productos${query ? `?${query}` : ''}`)
+    try {
+      const response = await fetch(`${API_URL}/almacenes`, {
+        headers: getHeaders(),
+      });
+      const almacenes = await handleResponse(response);
+      await offlineDB.saveAlmacenes(almacenes);
+      return almacenes;
+    } catch (error) {
+      const cached = await offlineDB.getAlmacenes();
+      if (cached.length > 0) return cached;
+      throw error;
+    }
   },
-  getProducto: (id) => api.get(`/productos/${id}`),
-  createProducto: (data) => api.post('/productos', data),
-  updateProducto: (id, data) => api.put(`/productos/${id}`, data),
-  deleteProducto: (id) => api.delete(`/productos/${id}`),
 
   // Stock
-  getAlertasStock: () => api.get('/stock/alertas'),
-  getStockVariante: (varianteId) => api.get(`/stock/variante/${varianteId}`),
-
-  // Movimientos
-  createMovimiento: (data) => api.post('/movimientos', data),
-  getMovimientos: (params = {}) => {
-    const query = new URLSearchParams(params).toString()
-    return api.get(`/movimientos${query ? `?${query}` : ''}`)
+  getStock: async (varianteId) => {
+    const response = await fetch(`${API_URL}/stock/variante/${varianteId}`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
   },
-}
 
+  getAlertasStock: async () => {
+    const response = await fetch(`${API_URL}/stock/alertas`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+};
+
+// ============ VENTAS API (con soporte offline) ============
 export const ventasApi = {
-  // Clientes
-  getClientes: (busqueda) => api.get(`/clientes${busqueda ? `?busqueda=${busqueda}` : ''}`),
-  createCliente: (data) => api.post('/clientes', data),
+  // Crear venta (con fallback offline)
+  createVenta: async (data) => {
+    // Calcular total desde detalles
+    const detalles = data.detalles || [];
+    const total = detalles.reduce((sum, item) => sum + (item.cantidad * item.precio_unitario), 0);
 
-  // Ventas
-  getVentas: (params = {}) => {
-    const query = new URLSearchParams(params).toString()
-    return api.get(`/ventas${query ? `?${query}` : ''}`)
+    if (!isOnline()) {
+      console.log('[API] Offline - guardando venta localmente');
+      const ventaOffline = await offlineDB.saveVentaPendiente(data);
+      return {
+        ...ventaOffline,
+        offline: true,
+        numero: `OFF-${ventaOffline.temp_id}`,
+        estado: 'COMPLETADA',
+        total: total,
+      };
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/ventas`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      return handleResponse(response);
+    } catch (error) {
+      // Si falla, guardar offline
+      console.log('[API] Error de red, guardando offline:', error.message);
+      const ventaOffline = await offlineDB.saveVentaPendiente(data);
+      return {
+        ...ventaOffline,
+        offline: true,
+        numero: `OFF-${ventaOffline.temp_id}`,
+        estado: 'COMPLETADA',
+        total: total,
+      };
+    }
   },
-  getVenta: (id) => api.get(`/ventas/${id}`),
-  createVenta: (data) => api.post('/ventas', data),
-  completarVenta: (id, data) => api.post(`/ventas/${id}/completar`, data),
-  cancelarVenta: (id, motivo) => api.post(`/ventas/${id}/cancelar${motivo ? `?motivo=${motivo}` : ''}`),
+
+  completarVenta: async (id, metodoPago = 'EFECTIVO', montoRecibido = null) => {
+    if (String(id).startsWith('OFF-')) {
+      return { success: true, offline: true };
+    }
+
+    const response = await fetch(`${API_URL}/ventas/${id}/completar`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+      metodo_pago: metodoPago,
+      monto_recibido: montoRecibido
+      })
+    });
+      return handleResponse(response);
+  },
+
+  getVentas: async (params = {}) => {
+    const queryParams = new URLSearchParams(params);
+    const response = await fetch(`${API_URL}/ventas?${queryParams}`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  getVenta: async (id) => {
+    const response = await fetch(`${API_URL}/ventas/${id}`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  cancelarVenta: async (id, motivo = '') => {
+    const response = await fetch(`${API_URL}/ventas/${id}/cancelar`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ motivo }),
+    });
+    return handleResponse(response);
+  },
+
+  // Clientes
+  getClientes: async () => {
+    const response = await fetch(`${API_URL}/clientes`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  buscarClientePorTelefono: async (telefono) => {
+    const response = await fetch(`${API_URL}/clientes/telefono/${telefono}`, {
+      headers: getHeaders(),
+    });
+    if (response.status === 404) return null;
+    return handleResponse(response);
+  },
 
   // Reportes
-  getReporteVentasDia: (fecha) => api.get(`/reportes/ventas-dia${fecha ? `?fecha=${fecha}` : ''}`),
-  getReporteCaja: (fecha) => api.get(`/reportes/caja${fecha ? `?fecha=${fecha}` : ''}`),
-}
+  getResumenDia: async (fecha) => {
+    const params = fecha ? `?fecha=${fecha}` : '';
+    const response = await fetch(`${API_URL}/reportes/ventas-dia${params}`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  getResumenCaja: async (fecha) => {
+    const params = fecha ? `?fecha=${fecha}` : '';
+    const response = await fetch(`${API_URL}/reportes/caja${params}`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  getReporteCaja: async (fecha) => {
+    const params = fecha ? `?fecha=${fecha}` : '';
+    const response = await fetch(`${API_URL}/reportes/caja${params}`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  getReporteVentasDia: async (fecha) => {
+    const params = fecha ? `?fecha=${fecha}` : '';
+    const response = await fetch(`${API_URL}/reportes/ventas-dia${params}`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  // Obtener ventas pendientes offline
+  getVentasPendientes: async () => {
+    return offlineDB.getVentasPendientes();
+  },
+};
+
+export default {
+  auth: authApi,
+  inventario: inventarioApi,
+  ventas: ventasApi,
+};

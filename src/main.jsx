@@ -4,6 +4,10 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { AuthProvider } from './context/AuthContext'
 import './index.css'
+import { initPWA } from './initPWA'
+
+// Inicializar PWA (Service Worker, cache offline, sincronización)
+initPWA()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

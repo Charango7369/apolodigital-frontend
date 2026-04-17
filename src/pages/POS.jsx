@@ -1,20 +1,23 @@
 import { useState, useEffect } from 'react'
 import { inventarioApi, ventasApi } from '../services/api'
+import TicketPreview from '../components/TicketPreview'
 import { 
   Search, Plus, Minus, Trash2, ShoppingCart, 
-  CreditCard, Banknote, QrCode, Send, X, Check
+  CreditCard, Banknote, QrCode, Send, X
 } from 'lucide-react'
 
 export default function POS() {
   const [productos, setProductos] = useState([])
   const [categorias, setCategorias] = useState([])
+  const [almacenes, setAlmacenes] = useState([])
+  const [almacenActual, setAlmacenActual] = useState(null)
   const [carrito, setCarrito] = useState([])
   const [busqueda, setBusqueda] = useState('')
   const [categoriaFiltro, setCategoriaFiltro] = useState('')
   const [loading, setLoading] = useState(true)
   const [procesando, setProcesando] = useState(false)
   const [modalPago, setModalPago] = useState(false)
-  const [ventaExitosa, setVentaExitosa] = useState(null)
+  const [ventaCompletada, setVentaCompletada] = useState(null)
 
   useEffect(() => {
     loadData()
@@ -29,12 +32,18 @@ export default function POS() {
 
   const loadData = async () => {
     try {
-      const [prods, cats] = await Promise.all([
+      const [prods, cats, alms] = await Promise.all([
         inventarioApi.getProductos(),
-        inventarioApi.getCategorias()
+        inventarioApi.getCategorias(),
+        inventarioApi.getAlmacenes()
       ])
-      setProductos(prods.items || [])
-      setCategorias(cats)
+      setProductos(prods.items || prods || [])
+      setCategorias(cats || [])
+      setAlmacenes(alms || [])
+      // Usar el primer almacén por defecto
+      if (alms && alms.length > 0) {
+        setAlmacenActual(alms[0].id)
+      }
     } catch (error) {
       console.error('Error loading data:', error)
     } finally {
@@ -48,34 +57,39 @@ export default function POS() {
       if (busqueda) params.busqueda = busqueda
       if (categoriaFiltro) params.categoria_id = categoriaFiltro
       const data = await inventarioApi.getProductos(params)
-      setProductos(data.items || [])
+      setProductos(data.items || data || [])
     } catch (error) {
       console.error('Error:', error)
     }
   }
 
   const agregarAlCarrito = (producto) => {
-    const existe = carrito.find(item => item.id === producto.id)
+    // Obtener la primera variante del producto
+    const variante = producto.variantes?.[0]
+    const varianteId = variante?.id || producto.variante_id || producto.id
+    const precio = variante?.precio_venta || producto.precio_venta || 0
+
+    const existe = carrito.find(item => item.variante_id === varianteId)
     if (existe) {
       setCarrito(carrito.map(item =>
-        item.id === producto.id
+        item.variante_id === varianteId
           ? { ...item, cantidad: item.cantidad + 1 }
           : item
       ))
     } else {
       setCarrito([...carrito, {
         id: producto.id,
+        variante_id: varianteId,
         nombre: producto.nombre,
-        precio: Number(producto.precio_venta || 0),
+        precio: Number(precio),
         cantidad: 1,
-        variante_id: producto.variante_id // Necesitamos obtener esto
       }])
     }
   }
 
-  const cambiarCantidad = (id, delta) => {
+  const cambiarCantidad = (varianteId, delta) => {
     setCarrito(carrito.map(item => {
-      if (item.id === id) {
+      if (item.variante_id === varianteId) {
         const nuevaCantidad = item.cantidad + delta
         return nuevaCantidad > 0 ? { ...item, cantidad: nuevaCantidad } : item
       }
@@ -83,8 +97,8 @@ export default function POS() {
     }).filter(item => item.cantidad > 0))
   }
 
-  const eliminarDelCarrito = (id) => {
-    setCarrito(carrito.filter(item => item.id !== id))
+  const eliminarDelCarrito = (varianteId) => {
+    setCarrito(carrito.filter(item => item.variante_id !== varianteId))
   }
 
   const vaciarCarrito = () => {
@@ -96,37 +110,63 @@ export default function POS() {
   const subtotal = carrito.reduce((sum, item) => sum + (item.precio * item.cantidad), 0)
   const total = subtotal
 
-  const procesarVenta = async (metodoPago, montoRecibido = null) => {
+  const procesarVenta = async (metodoPago, clienteNombre = '', clienteNit = '', montoRecibido = null) => {
     setProcesando(true)
     try {
-      // Primero necesitamos obtener las variantes de los productos
-      const detalles = await Promise.all(carrito.map(async (item) => {
-        // Obtener producto completo para tener variante_id
-        const producto = await inventarioApi.getProducto(item.id)
-        const variante = producto.variantes?.[0]
-        if (!variante) throw new Error(`Producto ${item.nombre} sin variante`)
-        return {
-          variante_id: variante.id,
-          cantidad: item.cantidad,
-          precio_unitario: item.precio
-        }
+      // Formato que espera el backend
+      const detalles = carrito.map(item => ({
+        variante_id: item.variante_id,
+        cantidad: item.cantidad,
+        precio_unitario: item.precio
       }))
 
-      const venta = await ventasApi.createVenta({
-        detalles,
+      // Crear la venta
+      const ventaCreada = await ventasApi.createVenta({
+        almacen_id: almacenActual,
+        detalles: detalles,
         metodo_pago: metodoPago,
-        monto_recibido: montoRecibido,
-        completar: true
+        cliente_nombre: clienteNombre || null,
+        cliente_nit: clienteNit || null,
+        notas: ''
       })
 
-      setVentaExitosa(venta)
-      setCarrito([])
+      // Si no es offline y está pendiente, completar la venta
+      if (!ventaCreada.offline && ventaCreada.estado === 'PENDIENTE') {
+        await ventasApi.completarVenta(ventaCreada.id, metodoPago, montoRecibido)
+      }
+
+      // Preparar datos para el ticket
+      setVentaCompletada({
+        numero: ventaCreada.numero || ventaCreada.temp_id,
+        total: total,
+        subtotal: subtotal,
+        descuento: 0,
+        metodo_pago: metodoPago,
+        cliente_nombre: clienteNombre || 'Mostrador',
+        cliente_nit: clienteNit,
+        cambio: montoRecibido ? montoRecibido - total : 0,
+        items: carrito.map(item => ({
+          producto_nombre: item.nombre,
+          cantidad: item.cantidad,
+          precio_unitario: item.precio,
+          subtotal: item.cantidad * item.precio
+        })),
+        created_at: new Date().toISOString(),
+        offline: ventaCreada.offline || false,
+      })
+
       setModalPago(false)
     } catch (error) {
-      alert(error.message)
+      console.error('Error al crear venta:', error)
+      alert(error.message || 'Error al procesar la venta')
     } finally {
       setProcesando(false)
     }
+  }
+
+  const cerrarTicket = () => {
+    setVentaCompletada(null)
+    setCarrito([])
   }
 
   if (loading) {
@@ -168,18 +208,22 @@ export default function POS() {
         {/* Grid de productos */}
         <div className="flex-1 overflow-y-auto">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {productos.map((producto) => (
-              <button
-                key={producto.id}
-                onClick={() => agregarAlCarrito(producto)}
-                className="card p-3 text-left hover:border-primary-300 hover:shadow-md transition-all active:scale-95"
-              >
-                <h3 className="font-medium text-gray-900 text-sm truncate">{producto.nombre}</h3>
-                <p className="text-lg font-bold text-primary-600 mt-1">
-                  Bs. {Number(producto.precio_venta || 0).toFixed(2)}
-                </p>
-              </button>
-            ))}
+            {productos.map((producto) => {
+              const variante = producto.variantes?.[0]
+              const precio = variante?.precio_venta || producto.precio_venta || 0
+              return (
+                <button
+                  key={producto.id}
+                  onClick={() => agregarAlCarrito(producto)}
+                  className="card p-3 text-left hover:border-primary-300 hover:shadow-md transition-all active:scale-95"
+                >
+                  <h3 className="font-medium text-gray-900 text-sm truncate">{producto.nombre}</h3>
+                  <p className="text-lg font-bold text-primary-600 mt-1">
+                    Bs. {Number(precio).toFixed(2)}
+                  </p>
+                </button>
+              )
+            })}
           </div>
         </div>
       </div>
@@ -203,27 +247,27 @@ export default function POS() {
             <p className="text-gray-500 text-center py-8">Carrito vacío</p>
           ) : (
             carrito.map((item) => (
-              <div key={item.id} className="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
+              <div key={item.variante_id} className="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-gray-900 text-sm truncate">{item.nombre}</p>
                   <p className="text-sm text-gray-500">Bs. {item.precio.toFixed(2)}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => cambiarCantidad(item.id, -1)}
+                    onClick={() => cambiarCantidad(item.variante_id, -1)}
                     className="p-1 rounded-lg bg-gray-200 hover:bg-gray-300"
                   >
                     <Minus className="w-4 h-4" />
                   </button>
                   <span className="w-8 text-center font-medium">{item.cantidad}</span>
                   <button
-                    onClick={() => cambiarCantidad(item.id, 1)}
+                    onClick={() => cambiarCantidad(item.variante_id, 1)}
                     className="p-1 rounded-lg bg-gray-200 hover:bg-gray-300"
                   >
                     <Plus className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => eliminarDelCarrito(item.id)}
+                    onClick={() => eliminarDelCarrito(item.variante_id)}
                     className="p-1 rounded-lg text-red-500 hover:bg-red-50"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -260,11 +304,11 @@ export default function POS() {
         />
       )}
 
-      {/* Modal de venta exitosa */}
-      {ventaExitosa && (
-        <ModalExito
-          venta={ventaExitosa}
-          onClose={() => setVentaExitosa(null)}
+      {/* Modal de ticket con impresión */}
+      {ventaCompletada && (
+        <TicketPreview 
+          venta={ventaCompletada}
+          onClose={cerrarTicket}
         />
       )}
     </div>
@@ -274,6 +318,8 @@ export default function POS() {
 function ModalPago({ total, procesando, onClose, onPagar }) {
   const [metodo, setMetodo] = useState('EFECTIVO')
   const [montoRecibido, setMontoRecibido] = useState('')
+  const [clienteNombre, setClienteNombre] = useState('')
+  const [clienteNit, setClienteNit] = useState('')
 
   const cambio = metodo === 'EFECTIVO' && montoRecibido 
     ? Number(montoRecibido) - total 
@@ -286,9 +332,18 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
     { id: 'TRANSFERENCIA', label: 'Transfer', icon: Send },
   ]
 
+  const handleConfirmar = () => {
+    onPagar(
+      metodo, 
+      clienteNombre, 
+      clienteNit, 
+      montoRecibido ? Number(montoRecibido) : null
+    )
+  }
+
   return (
     <div className="fixed inset-0 bg-gray-900/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">Método de pago</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
@@ -321,6 +376,34 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
             ))}
           </div>
 
+          {/* Datos del cliente (opcional) */}
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Nombre del cliente (opcional)
+              </label>
+              <input
+                type="text"
+                value={clienteNombre}
+                onChange={(e) => setClienteNombre(e.target.value)}
+                className="input"
+                placeholder="Cliente mostrador"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                NIT/CI (opcional)
+              </label>
+              <input
+                type="text"
+                value={clienteNit}
+                onChange={(e) => setClienteNit(e.target.value)}
+                className="input"
+                placeholder="Para factura"
+              />
+            </div>
+          </div>
+
           {metodo === 'EFECTIVO' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -345,38 +428,13 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
           )}
 
           <button
-            onClick={() => onPagar(metodo, montoRecibido ? Number(montoRecibido) : null)}
+            onClick={handleConfirmar}
             disabled={procesando || (metodo === 'EFECTIVO' && Number(montoRecibido || 0) < total)}
             className="btn btn-success w-full py-3 text-lg"
           >
             {procesando ? 'Procesando...' : 'Confirmar venta'}
           </button>
         </div>
-      </div>
-    </div>
-  )
-}
-
-function ModalExito({ venta, onClose }) {
-  return (
-    <div className="fixed inset-0 bg-gray-900/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm text-center p-6">
-        <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
-          <Check className="w-8 h-8 text-green-600" />
-        </div>
-        <h2 className="text-xl font-bold text-gray-900 mb-2">¡Venta exitosa!</h2>
-        <p className="text-gray-500 mb-4">Ticket #{venta.numero}</p>
-        <p className="text-2xl font-bold text-primary-600 mb-6">
-          Bs. {Number(venta.total).toFixed(2)}
-        </p>
-        {venta.cambio > 0 && (
-          <p className="text-lg text-green-600 mb-4">
-            Cambio: Bs. {Number(venta.cambio).toFixed(2)}
-          </p>
-        )}
-        <button onClick={onClose} className="btn btn-primary w-full">
-          Nueva venta
-        </button>
       </div>
     </div>
   )
