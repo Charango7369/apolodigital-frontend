@@ -7,34 +7,43 @@ import { syncService } from './services/syncService';
  * - Configura sincronización automática
  */
 export async function initPWA() {
-  // 1. Registrar Service Worker
+  // 1. Registrar Service Worker (solo en producción - evita problemas en dev)
   if ('serviceWorker' in navigator) {
-    try {
-      const registration = await navigator.serviceWorker.register('/sw.js', {
-        scope: '/',
-      });
-      console.log('[PWA] Service Worker registrado:', registration.scope);
+    // En desarrollo (Vite dev server) es común desactivar el SW para evitar cache confuso
+    const isDev = import.meta.env.DEV;
 
-      // Escuchar actualizaciones
-      registration.addEventListener('updatefound', () => {
-        const newWorker = registration.installing;
-        newWorker?.addEventListener('statechange', () => {
-          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            // Nueva versión disponible
-            console.log('[PWA] Nueva versión disponible');
-            window.dispatchEvent(new CustomEvent('pwa:update-available'));
-          }
+    if (!isDev) {
+      try {
+        const registration = await navigator.serviceWorker.register('/sw.js', {
+          scope: '/',
         });
-      });
-    } catch (error) {
-      console.error('[PWA] Error registrando Service Worker:', error);
+        console.log('[PWA] Service Worker registrado:', registration.scope);
+
+        // Escuchar actualizaciones
+        registration.addEventListener('updatefound', () => {
+          const newWorker = registration.installing;
+          newWorker?.addEventListener('statechange', () => {
+            if (
+              newWorker.state === 'installed' &&
+              navigator.serviceWorker.controller
+            ) {
+              console.log('[PWA] Nueva versión disponible');
+              window.dispatchEvent(new CustomEvent('pwa:update-available'));
+            }
+          });
+        });
+      } catch (error) {
+        console.error('[PWA] Error registrando Service Worker:', error);
+      }
+    } else {
+      console.log('[PWA] SW deshabilitado en dev');
     }
   }
 
   // 2. Escuchar reconexión para sincronizar
   window.addEventListener('online', async () => {
     console.log('[PWA] Conexión restaurada');
-    
+
     // Esperar un momento para que la red se estabilice
     setTimeout(async () => {
       const result = await syncService.syncAll();
@@ -44,16 +53,19 @@ export async function initPWA() {
     }, 2000);
   });
 
-  // 3. Solicitar permiso de notificaciones (opcional)
+  // 3. Solicitar permiso de notificaciones en primer click
   if ('Notification' in window && Notification.permission === 'default') {
-    // No pedir inmediatamente, esperar a que el usuario interactúe
-    document.addEventListener('click', () => {
-      Notification.requestPermission();
-    }, { once: true });
+    document.addEventListener(
+      'click',
+      () => {
+        Notification.requestPermission();
+      },
+      { once: true }
+    );
   }
 
-  // 4. Precargar datos si hay conexión
-  if (navigator.onLine) {
+  // 4. Precargar datos si hay conexión Y token (evita 401 en cold start)
+  if (navigator.onLine && localStorage.getItem('token')) {
     try {
       await syncService.refreshLocalData();
       console.log('[PWA] Datos precargados para uso offline');

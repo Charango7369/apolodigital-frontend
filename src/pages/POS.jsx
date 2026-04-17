@@ -127,7 +127,8 @@ export default function POS() {
         metodo_pago: metodoPago,
         cliente_nombre: clienteNombre || null,
         cliente_nit: clienteNit || null,
-        notas: ''
+        notas: '',
+        monto_recibido: montoRecibido || null
       })
 
       // Si no es offline y está pendiente, completar la venta
