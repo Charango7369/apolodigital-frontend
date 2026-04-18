@@ -79,20 +79,11 @@ class SyncService {
 
           if (response.ok) {
             const ventaCreada = await response.json();
-            await fetch(`${API_URL}/ventas/${ventaCreada.id}/completar`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                metodo_pago: venta.metodo_pago,
-                monto_recibido: venta.monto_recibido || null,
-              }),
-            });
+            // POST /ventas con completar=true (default del backend) ya completa la venta
+            // No es necesario un segundo POST a /completar
             await offlineDB.marcarVentaSincronizada(venta.temp_id);
             synced++;
-            console.log(`[Sync] Venta ${venta.temp_id} sincronizada`);
+            console.log(`[Sync] Venta ${venta.temp_id} sincronizada (id backend: ${ventaCreada.id})`);
           } else {
             failed++;
             console.error(
