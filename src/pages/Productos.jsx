@@ -196,13 +196,18 @@ export default function Productos() {
 }
 
 function ProductoModal({ producto, categorias, onClose, onSave }) {
+  // Los precios viven en la variante default del producto, no en el producto.
+  // Cuando editamos, leemos de producto.variantes[0]. Si ese producto fue
+  // creado antes del fix de backend, producto.precio_venta puede existir
+  // como fallback — lo respetamos.
+  const varianteDefault = producto?.variantes?.[0]
   const [form, setForm] = useState({
     nombre: producto?.nombre || '',
     categoria_id: producto?.categoria_id || '',
     codigo_barras: producto?.codigo_barras || '',
     unidad_medida: producto?.unidad_medida || 'unidad',
-    precio_venta: producto?.precio_venta || '',
-    precio_costo: '',
+    precio_venta: varianteDefault?.precio_venta || producto?.precio_venta || '',
+    precio_costo: varianteDefault?.precio_costo || '',
     es_servicio: producto?.es_servicio || false,
   })
   const [saving, setSaving] = useState(false)
