@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { inventarioApi, ventasApi } from '../services/api'
 import TicketPreview from '../components/TicketPreview'
-import { 
-  Search, Plus, Minus, Trash2, ShoppingCart, 
-  CreditCard, Banknote, QrCode, Send, X
+import { useBarcodeScanner } from '../hooks/useBarcodeScanner'
+import {
+  Search, Plus, Minus, Trash2, ShoppingCart,
+  CreditCard, Banknote, QrCode, Send, X, ScanLine, AlertCircle
 } from 'lucide-react'
 
 export default function POS() {
@@ -18,6 +19,33 @@ export default function POS() {
   const [procesando, setProcesando] = useState(false)
   const [modalPago, setModalPago] = useState(false)
   const [ventaCompletada, setVentaCompletada] = useState(null)
+
+  // ====== BARCODE ======
+  const [barcodeInput, setBarcodeInput] = useState('')
+  const [scanFeedback, setScanFeedback] = useState(null) // { tipo: 'ok'|'error', msg, ts }
+  const barcodeInputRef = useRef(null)
+  const audioBeepOk = useRef(null)
+  const audioBeepError = useRef(null)
+
+  // Crear beeps sintéticos con Web Audio API (sin assets externos)
+  const playBeep = useCallback((ok = true) => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain); gain.connect(ctx.destination)
+      osc.frequency.value = ok ? 880 : 220  // agudo = ok, grave = error
+      gain.gain.setValueAtTime(0.15, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2)
+      osc.start()
+      osc.stop(ctx.currentTime + 0.2)
+    } catch (e) { /* silent — no audio API */ }
+  }, [])
+
+  const mostrarFeedback = useCallback((tipo, msg) => {
+    setScanFeedback({ tipo, msg, ts: Date.now() })
+    setTimeout(() => setScanFeedback((f) => (f?.ts && Date.now() - f.ts >= 2500 ? null : f)), 2500)
+  }, [])
 
   useEffect(() => {
     loadData()
@@ -86,6 +114,73 @@ export default function POS() {
       }])
     }
   }
+
+  /**
+   * Agrega una variante específica al carrito (usado por escaneo de barcode).
+   * A diferencia de agregarAlCarrito, NO asume la primera variante:
+   * usa exactamente la variante que el backend devolvió.
+   */
+  const agregarVarianteAlCarrito = useCallback((varianteData) => {
+    const varianteId = varianteData.id
+    const precio = Number(varianteData.precio_venta) || 0
+    const nombre = varianteData.producto_nombre || 'Producto sin nombre'
+
+    // Construir nombre con atributos si existen (ej: "Camiseta — Talla M, Rojo")
+    let nombreCompleto = nombre
+    if (varianteData.atributos && Object.keys(varianteData.atributos).length > 0) {
+      const attrs = Object.values(varianteData.atributos).join(' ')
+      if (attrs.trim()) nombreCompleto = `${nombre} — ${attrs}`
+    }
+
+    setCarrito((prev) => {
+      const existe = prev.find((i) => i.variante_id === varianteId)
+      if (existe) {
+        return prev.map((i) =>
+          i.variante_id === varianteId ? { ...i, cantidad: i.cantidad + 1 } : i
+        )
+      }
+      return [
+        ...prev,
+        {
+          id: varianteData.producto_id,
+          variante_id: varianteId,
+          nombre: nombreCompleto,
+          precio,
+          cantidad: 1,
+        },
+      ]
+    })
+  }, [])
+
+  /**
+   * Procesa un código de barras escaneado o escrito.
+   * - Busca online (con fallback offline en api.js)
+   * - Si encuentra: beep ok + agrega variante
+   * - Si no encuentra: beep error + feedback visual
+   */
+  const procesarBarcode = useCallback(async (codigo) => {
+    if (!codigo || codigo.trim().length < 4) return
+    setBarcodeInput('')  // limpiar input inmediatamente para permitir siguiente escaneo
+
+    try {
+      const variante = await inventarioApi.buscarPorBarcode(codigo)
+      if (variante) {
+        agregarVarianteAlCarrito(variante)
+        playBeep(true)
+        mostrarFeedback('ok', `${variante.producto_nombre} agregado`)
+      } else {
+        playBeep(false)
+        mostrarFeedback('error', `Código "${codigo}" no registrado`)
+      }
+    } catch (error) {
+      playBeep(false)
+      mostrarFeedback('error', `Error al buscar código`)
+      console.error('[Barcode] Error:', error)
+    }
+  }, [agregarVarianteAlCarrito, playBeep, mostrarFeedback])
+
+  // Listener global de escáner HID (estrategia C)
+  useBarcodeScanner(procesarBarcode, !modalPago && !ventaCompletada)
 
   const cambiarCantidad = (varianteId, delta) => {
     setCarrito(carrito.map(item => {
@@ -182,6 +277,41 @@ export default function POS() {
     <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-8rem)]">
       {/* Productos */}
       <div className="flex-1 flex flex-col min-h-0">
+        {/* Barra de escaneo de código de barras */}
+        <div className="mb-3">
+          <div className="relative">
+            <ScanLine className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-primary-500" />
+            <input
+              ref={barcodeInputRef}
+              type="text"
+              data-barcode-input="true"
+              value={barcodeInput}
+              onChange={(e) => setBarcodeInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  procesarBarcode(barcodeInput)
+                }
+              }}
+              placeholder="Escanear código de barras o escribir y presionar Enter..."
+              className="input pl-10 pr-10 bg-primary-50 border-primary-200 focus:bg-white"
+              autoFocus
+            />
+            {scanFeedback && (
+              <div
+                className={`absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
+                  scanFeedback.tipo === 'ok'
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-red-100 text-red-700'
+                }`}
+              >
+                {scanFeedback.tipo === 'error' && <AlertCircle className="w-3 h-3" />}
+                {scanFeedback.msg}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Búsqueda y filtros */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
           <div className="relative flex-1">

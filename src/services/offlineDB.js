@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'apolodigital-offline';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 class OfflineDB {
   constructor() {
@@ -32,12 +32,20 @@ class OfflineDB {
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
+        const tx = event.target.transaction;
 
         // Store para productos
         if (!db.objectStoreNames.contains('productos')) {
           const productosStore = db.createObjectStore('productos', { keyPath: 'id' });
           productosStore.createIndex('nombre', 'nombre', { unique: false });
           productosStore.createIndex('categoria_id', 'categoria_id', { unique: false });
+        }
+
+        // v2: agregar store dedicado para búsqueda por código de barras
+        // Guardamos variantes (no productos) porque el barcode vive en la variante.
+        if (!db.objectStoreNames.contains('variantes_barcode')) {
+          const varStore = db.createObjectStore('variantes_barcode', { keyPath: 'codigo_barras' });
+          varStore.createIndex('variante_id', 'variante_id', { unique: false });
         }
 
         // Store para categorías
@@ -52,9 +60,9 @@ class OfflineDB {
 
         // Store para ventas pendientes (offline)
         if (!db.objectStoreNames.contains('ventas_pendientes')) {
-          const ventasStore = db.createObjectStore('ventas_pendientes', { 
-            keyPath: 'temp_id', 
-            autoIncrement: true 
+          const ventasStore = db.createObjectStore('ventas_pendientes', {
+            keyPath: 'temp_id',
+            autoIncrement: true,
           });
           ventasStore.createIndex('created_at', 'created_at', { unique: false });
           ventasStore.createIndex('synced', 'synced', { unique: false });
@@ -65,7 +73,7 @@ class OfflineDB {
           db.createObjectStore('config', { keyPath: 'key' });
         }
 
-        console.log('[OfflineDB] Estructura creada');
+        console.log('[OfflineDB] Estructura actualizada a v' + DB_VERSION);
       };
     });
   }
@@ -74,19 +82,50 @@ class OfflineDB {
   async saveProductos(productos) {
     await this.init();
     return new Promise((resolve, reject) => {
-      const tx = this.db.transaction('productos', 'readwrite');
+      const tx = this.db.transaction(['productos', 'variantes_barcode'], 'readwrite');
       const store = tx.objectStore('productos');
-      
+      const barcodeStore = tx.objectStore('variantes_barcode');
+
       store.clear();
+      barcodeStore.clear();
+
       for (const producto of productos) {
         store.put(producto);
+
+        // Indexar cada variante con código de barras para búsqueda offline
+        for (const variante of (producto.variantes || [])) {
+          if (variante.codigo_barras) {
+            barcodeStore.put({
+              codigo_barras: variante.codigo_barras,
+              variante_id: variante.id,
+              producto_id: producto.id,
+              producto_nombre: producto.nombre,
+              sku: variante.sku,
+              precio_venta: variante.precio_venta,
+              atributos: variante.atributos,
+              activa: variante.activa,
+            });
+          }
+        }
       }
-      
+
       tx.oncomplete = () => {
         console.log(`[OfflineDB] ${productos.length} productos guardados`);
         resolve();
       };
       tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  // ========== BARCODE ==========
+  async getVariantePorBarcode(codigo) {
+    await this.init();
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('variantes_barcode', 'readonly');
+      const store = tx.objectStore('variantes_barcode');
+      const request = store.get(codigo);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
     });
   }
 
@@ -110,6 +149,48 @@ class OfflineDB {
       const request = store.get(id);
       
       request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // ========== VARIANTES POR CÓDIGO DE BARRAS ==========
+  /**
+   * Guarda una variante indexada por su código de barras para búsqueda offline.
+   * Se llama cuando el backend responde exitosamente a una búsqueda.
+   */
+  async saveVarianteBarcode(varianteData) {
+    if (!varianteData?.codigo_barras) return;
+    await this.init();
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('variantes_barcode', 'readwrite');
+      const store = tx.objectStore('variantes_barcode');
+      const record = {
+        codigo_barras: varianteData.codigo_barras,
+        variante_id: varianteData.id,
+        producto_nombre: varianteData.producto_nombre,
+        producto_id: varianteData.producto_id,
+        sku: varianteData.sku,
+        precio_venta: varianteData.precio_venta,
+        atributos: varianteData.atributos,
+        cached_at: new Date().toISOString(),
+      };
+      store.put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * Busca una variante por código de barras en el cache local.
+   * Retorna null si no existe (no throw).
+   */
+  async getVariantePorBarcode(codigo) {
+    await this.init();
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('variantes_barcode', 'readonly');
+      const store = tx.objectStore('variantes_barcode');
+      const request = store.get(codigo);
+      request.onsuccess = () => resolve(request.result || null);
       request.onerror = () => reject(request.error);
     });
   }

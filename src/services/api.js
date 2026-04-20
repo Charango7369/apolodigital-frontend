@@ -196,6 +196,131 @@ export const inventarioApi = {
     });
     return handleResponse(response);
   },
+
+  /**
+   * Busca una variante por código de barras.
+   *
+   * Lógica de fallback:
+   *  - Online y código existe → API + guardar en cache
+   *  - Online y código NO existe → retorna null (NO busca offline, el dato es real)
+   *  - Offline (error de red) → busca en IndexedDB
+   *
+   * @returns {Promise<object|null>} la variante o null si no se encontró
+   */
+  buscarPorBarcode: async (codigo) => {
+    if (!codigo || codigo.trim() === '') return null;
+    const codigoLimpio = codigo.trim();
+
+    // Si estamos offline, ir directo al cache
+    if (!isOnline()) {
+      const cached = await offlineDB.getVariantePorBarcode(codigoLimpio);
+      return cached || null;
+    }
+
+    try {
+      const response = await fetch(
+        `${API_URL}/variantes/barcode/${encodeURIComponent(codigoLimpio)}`,
+        { headers: getHeaders() }
+      );
+
+      if (response.status === 404) {
+        // El código no existe en el backend → dato autoritativo, no buscar offline
+        return null;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}`);
+      }
+
+      const data = await response.json();
+      // Guardar en cache para uso offline futuro
+      await offlineDB.saveVarianteBarcode(data);
+      return data;
+    } catch (error) {
+      // Error de red → intentar cache local
+      console.warn('[API] Error de red buscando barcode, probando cache:', error.message);
+      const cached = await offlineDB.getVariantePorBarcode(codigoLimpio);
+      return cached || null;
+    }
+  },
+
+  // ============ PROVEEDORES ============
+  getProveedores: async (soloActivos = true) => {
+    const response = await fetch(
+      `${API_URL}/proveedores?solo_activos=${soloActivos}`,
+      { headers: getHeaders() }
+    );
+    return handleResponse(response);
+  },
+
+  createProveedor: async (data) => {
+    const response = await fetch(`${API_URL}/proveedores`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  updateProveedor: async (id, data) => {
+    const response = await fetch(`${API_URL}/proveedores/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  // ============ MOVIMIENTOS ============
+  crearMovimiento: async (data) => {
+    const response = await fetch(`${API_URL}/movimientos`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  getMovimientos: async (params = {}) => {
+    const queryParams = new URLSearchParams(params);
+    const response = await fetch(`${API_URL}/movimientos?${queryParams}`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  // ============ CÓDIGO DE BARRAS ============
+  /**
+   * Busca una variante por código de barras.
+   * Estrategia híbrida:
+   * - Online: consulta la API y guarda resultado en IndexedDB
+   * - Offline: busca directamente en IndexedDB por índice codigo_barras
+   *
+   * Devuelve null si no encuentra (no lanza error — el beep de error lo hace la UI)
+   */
+  buscarPorBarcode: async (codigo) => {
+    const codigoLimpio = String(codigo).trim();
+    if (!codigoLimpio) return null;
+
+    // Si offline → directo a IndexedDB
+    if (!isOnline()) {
+      console.log('[API] Offline - buscando barcode en cache');
+      return offlineDB.getVariantePorBarcode(codigoLimpio);
+    }
+
+    try {
+      const response = await fetch(
+        `${API_URL}/variantes/barcode/${encodeURIComponent(codigoLimpio)}`,
+        { headers: getHeaders() }
+      );
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error(`Error ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.log('[API] Error red, buscando en cache:', error.message);
+      return offlineDB.getVariantePorBarcode(codigoLimpio);
+    }
+  },
 };
 
 // ============ VENTAS API (con soporte offline) ============
