@@ -426,8 +426,53 @@ export const ventasApi = {
   },
 };
 
+// ============ ADMIN API (panel SUPERADMIN) ============
+export const adminApi = {
+  getNegocios: async (soloActivos = false) => {
+    const response = await fetch(
+      `${API_URL}/admin/negocios?solo_activos=${soloActivos}`,
+      { headers: getHeaders() }
+    );
+    return handleResponse(response);
+  },
+
+  getNegocio: async (id) => {
+    const response = await fetch(`${API_URL}/admin/negocios/${id}`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  createNegocio: async (data) => {
+    const response = await fetch(`${API_URL}/admin/negocios`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  updateNegocio: async (id, data) => {
+    const response = await fetch(`${API_URL}/admin/negocios/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  toggleNegocio: async (id) => {
+    const response = await fetch(`${API_URL}/admin/negocios/${id}/toggle`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+};
+
 export default {
   auth: authApi,
   inventario: inventarioApi,
   ventas: ventasApi,
+  admin: adminApi,
 };

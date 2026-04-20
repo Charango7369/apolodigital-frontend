@@ -15,7 +15,8 @@ import {
   User,
   Store,
   ArrowLeftRight,
-  Truck
+  Truck,
+  Building2
 } from 'lucide-react'
 
 const navigation = [
@@ -29,10 +30,18 @@ const navigation = [
   { name: 'Reportes', href: '/reportes', icon: BarChart3 },
 ]
 
+// Items que solo aparecen para superadmin (gestión de plataforma)
+const superadminNavigation = [
+  { name: 'Admin plataforma', href: '/admin/negocios', icon: Building2 },
+]
+
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+
+  const isSuperadmin = user?.rol === 'superadmin'
+  const navItems = isSuperadmin ? [...navigation, ...superadminNavigation] : navigation
 
   const handleLogout = () => {
     logout()
@@ -72,7 +81,7 @@ export default function Layout() {
 
         {/* Navigation */}
         <nav className="p-4 space-y-1">
-          {navigation.map((item) => (
+          {navItems.map((item) => (
             <NavLink
               key={item.name}
               to={item.href}
