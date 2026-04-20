@@ -13,14 +13,18 @@ import {
   X,
   LogOut,
   User,
-  Store
+  Store,
+  ArrowLeftRight,
+  Truck
 } from 'lucide-react'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { name: 'POS', href: '/pos', icon: ShoppingCart },
   { name: 'Productos', href: '/productos', icon: Package },
   { name: 'Categorías', href: '/categorias', icon: Tags },
-  { name: 'POS', href: '/pos', icon: ShoppingCart },
+  { name: 'Movimientos', href: '/movimientos', icon: ArrowLeftRight },
+  { name: 'Proveedores', href: '/proveedores', icon: Truck },
   { name: 'Ventas', href: '/ventas', icon: Receipt },
   { name: 'Reportes', href: '/reportes', icon: BarChart3 },
 ]

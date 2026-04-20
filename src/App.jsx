@@ -8,6 +8,8 @@ import Categorias from './pages/Categorias'
 import Ventas from './pages/Ventas'
 import POS from './pages/POS'
 import Reportes from './pages/Reportes'
+import Movimientos from './pages/Movimientos'
+import Proveedores from './pages/Proveedores'
 
 function PrivateRoute({ children }) {
   const { token, loading } = useAuth()
@@ -38,6 +40,8 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="productos" element={<Productos />} />
         <Route path="categorias" element={<Categorias />} />
+        <Route path="movimientos" element={<Movimientos />} />
+        <Route path="proveedores" element={<Proveedores />} />
         <Route path="ventas" element={<Ventas />} />
         <Route path="pos" element={<POS />} />
         <Route path="reportes" element={<Reportes />} />

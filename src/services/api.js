@@ -288,39 +288,6 @@ export const inventarioApi = {
     });
     return handleResponse(response);
   },
-
-  // ============ CÓDIGO DE BARRAS ============
-  /**
-   * Busca una variante por código de barras.
-   * Estrategia híbrida:
-   * - Online: consulta la API y guarda resultado en IndexedDB
-   * - Offline: busca directamente en IndexedDB por índice codigo_barras
-   *
-   * Devuelve null si no encuentra (no lanza error — el beep de error lo hace la UI)
-   */
-  buscarPorBarcode: async (codigo) => {
-    const codigoLimpio = String(codigo).trim();
-    if (!codigoLimpio) return null;
-
-    // Si offline → directo a IndexedDB
-    if (!isOnline()) {
-      console.log('[API] Offline - buscando barcode en cache');
-      return offlineDB.getVariantePorBarcode(codigoLimpio);
-    }
-
-    try {
-      const response = await fetch(
-        `${API_URL}/variantes/barcode/${encodeURIComponent(codigoLimpio)}`,
-        { headers: getHeaders() }
-      );
-      if (response.status === 404) return null;
-      if (!response.ok) throw new Error(`Error ${response.status}`);
-      return await response.json();
-    } catch (error) {
-      console.log('[API] Error red, buscando en cache:', error.message);
-      return offlineDB.getVariantePorBarcode(codigoLimpio);
-    }
-  },
 };
 
 // ============ VENTAS API (con soporte offline) ============

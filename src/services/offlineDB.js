@@ -117,18 +117,6 @@ class OfflineDB {
     });
   }
 
-  // ========== BARCODE ==========
-  async getVariantePorBarcode(codigo) {
-    await this.init();
-    return new Promise((resolve, reject) => {
-      const tx = this.db.transaction('variantes_barcode', 'readonly');
-      const store = tx.objectStore('variantes_barcode');
-      const request = store.get(codigo);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
   async getProductos() {
     await this.init();
     return new Promise((resolve, reject) => {
