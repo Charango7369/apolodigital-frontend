@@ -16,7 +16,8 @@ import {
   Store,
   ArrowLeftRight,
   Truck,
-  Building2
+  Building2,
+  Warehouse
 } from 'lucide-react'
 
 const navigation = [
@@ -24,6 +25,7 @@ const navigation = [
   { name: 'POS', href: '/pos', icon: ShoppingCart },
   { name: 'Productos', href: '/productos', icon: Package },
   { name: 'Categorías', href: '/categorias', icon: Tags },
+  { name: 'Almacenes', href: '/almacenes', icon: Warehouse },
   { name: 'Movimientos', href: '/movimientos', icon: ArrowLeftRight },
   { name: 'Proveedores', href: '/proveedores', icon: Truck },
   { name: 'Ventas', href: '/ventas', icon: Receipt },

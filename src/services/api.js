@@ -182,6 +182,24 @@ export const inventarioApi = {
     }
   },
 
+  createAlmacen: async (data) => {
+    const response = await fetch(`${API_URL}/almacenes`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  updateAlmacen: async (id, data) => {
+    const response = await fetch(`${API_URL}/almacenes/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
   // Stock
   getStock: async (varianteId) => {
     const response = await fetch(`${API_URL}/stock/variante/${varianteId}`, {

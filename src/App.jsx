@@ -11,6 +11,7 @@ import Reportes from './pages/Reportes'
 import Movimientos from './pages/Movimientos'
 import Proveedores from './pages/Proveedores'
 import AdminNegocios from './pages/AdminNegocios'
+import Almacenes from './pages/Almacenes'
 
 function PrivateRoute({ children }) {
   const { token, loading } = useAuth()
@@ -61,6 +62,7 @@ export default function App() {
         <Route path="categorias" element={<Categorias />} />
         <Route path="movimientos" element={<Movimientos />} />
         <Route path="proveedores" element={<Proveedores />} />
+        <Route path="almacenes" element={<Almacenes />} />
         <Route path="ventas" element={<Ventas />} />
         <Route path="pos" element={<POS />} />
         <Route path="reportes" element={<Reportes />} />

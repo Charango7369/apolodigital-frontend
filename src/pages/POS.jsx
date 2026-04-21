@@ -11,7 +11,9 @@ export default function POS() {
   const [productos, setProductos] = useState([])
   const [categorias, setCategorias] = useState([])
   const [almacenes, setAlmacenes] = useState([])
-  const [almacenActual, setAlmacenActual] = useState(null)
+  const [almacenActual, setAlmacenActual] = useState(
+    () => localStorage.getItem('apolodigital_almacen_id') || null
+  )
   const [carrito, setCarrito] = useState([])
   const [busqueda, setBusqueda] = useState('')
   const [categoriaFiltro, setCategoriaFiltro] = useState('')
@@ -68,9 +70,22 @@ export default function POS() {
       setProductos(prods.items || prods || [])
       setCategorias(cats || [])
       setAlmacenes(alms || [])
-      // Usar el primer almacén por defecto
+
+      // Autoselección inteligente:
+      // 1. Si hay un almacén guardado en localStorage y sigue existiendo → usarlo
+      // 2. Si hay exactamente 1 almacén → seleccionarlo automático (sin pregunta)
+      // 3. Si hay varios → el cajero elige (selector visible)
       if (alms && alms.length > 0) {
-        setAlmacenActual(alms[0].id)
+        const guardado = localStorage.getItem('apolodigital_almacen_id')
+        const sigueExistiendo = guardado && alms.find(a => a.id === guardado)
+        if (sigueExistiendo) {
+          setAlmacenActual(guardado)
+        } else {
+          // Autoseleccionar el primero (caso dominante: 1 solo almacén)
+          const id = alms[0].id
+          setAlmacenActual(id)
+          localStorage.setItem('apolodigital_almacen_id', id)
+        }
       }
     } catch (error) {
       console.error('Error loading data:', error)
