@@ -288,7 +288,31 @@ export const inventarioApi = {
     });
     return handleResponse(response);
   },
-
+// ============ LOTES ============
+  crearLote: async (data) => {
+    const response = await fetch(`${API_URL}/lotes`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+  getLotes: async (params = {}) => {
+    const queryParams = new URLSearchParams(params);
+    const response = await fetch(`${API_URL}/lotes?${queryParams}`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+  // ============ LOTES ============
+  crearLote: async (data) => {
+    const response = await fetch(`${API_URL}/lotes`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
   // ============ MOVIMIENTOS ============
   crearMovimiento: async (data) => {
     const response = await fetch(`${API_URL}/movimientos`, {

@@ -72,7 +72,17 @@ export default function Movimientos() {
       setLoading(false)
     }
   }
-
+  const registrarCompra = async (data) => {
+    try {
+      await inventarioApi.crearLote(data)
+      setModalActivo(null)
+      setPagina(1)
+      cargarMovimientos()
+    } catch (error) {
+      alert(error.message || 'Error al registrar compra')
+      throw error
+    }
+  }
   const registrarMovimiento = async (data) => {
     try {
       await inventarioApi.crearMovimiento(data)
@@ -260,7 +270,7 @@ export default function Movimientos() {
           almacenes={almacenes}
           proveedores={proveedores}
           onClose={() => setModalActivo(null)}
-          onSave={registrarMovimiento}
+          onSave={registrarCompra}
         />
       )}
       {modalActivo === 'ajuste' && (
@@ -314,12 +324,12 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
       await onSave({
         variante_id: variante.id,
         almacen_id: almacenId,
-        tipo: 'ENTRADA_COMPRA',
         cantidad: Number(cantidad),
         costo_unitario: costoUnitario ? Number(costoUnitario) : null,
-        referencia_id: proveedorId || null,
-        motivo: motivoCompleto || 'Entrada de mercadería',
+        referencia_compra: proveedorId || null,
+        notas: motivoCompleto || 'Entrada de mercadería',
       })
+           
     } finally {
       setGuardando(false)
     }
