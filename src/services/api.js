@@ -304,7 +304,7 @@ export const inventarioApi = {
     });
     return handleResponse(response);
   },
-  // ============ LOTES ============
+  // ============ MOVIMIENTOS ============
   crearMovimiento: async (data) => {
     const response = await fetch(`${API_URL}/movimientos`, {
       method: 'POST',
