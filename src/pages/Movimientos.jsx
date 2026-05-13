@@ -408,10 +408,7 @@ function ModalAjuste({ productos, almacenes, onClose, onSave }) {
     if (!variante) { alert('Selecciona un producto'); return }
     if (!almacenId) { alert('Selecciona un almacén'); return }
     if (!cantidad || Number(cantidad) <= 0) { alert('Cantidad debe ser mayor a 0'); return }
-    if (producto?.controla_vencimiento && !fechaVencimiento) {
-      alert('Este producto controla vencimiento. Ingresá la fecha de vencimiento.')
-      return
-    }
+    
     if (!motivo.trim()) { alert('El motivo es obligatorio para ajustes'); return }
 
     setGuardando(true)
@@ -492,10 +489,7 @@ function ModalDevolucion({ productos, almacenes, onClose, onSave }) {
     if (!variante) { alert('Selecciona un producto'); return }
     if (!almacenId) { alert('Selecciona un almacén'); return }
     if (!cantidad || Number(cantidad) <= 0) { alert('Cantidad debe ser mayor a 0'); return }
-    if (producto?.controla_vencimiento && !fechaVencimiento) {
-      alert('Este producto controla vencimiento. Ingresá la fecha de vencimiento.')
-      return
-    }
+    
     if (!motivo.trim()) { alert('El motivo es obligatorio'); return }
 
     setGuardando(true)
