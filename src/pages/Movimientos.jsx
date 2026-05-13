@@ -301,6 +301,8 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
   const [costoUnitario, setCostoUnitario] = useState('')
   const [proveedorId, setProveedorId] = useState('')
   const [notas, setNotas] = useState('')
+  const [codigoLote, setCodigoLote] = useState('')
+  const [fechaVencimiento, setFechaVencimiento] = useState('')
   const [guardando, setGuardando] = useState(false)
 
   const producto = productos.find((p) => p.id === productoId)
@@ -310,6 +312,10 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
     if (!variante) { alert('Selecciona un producto'); return }
     if (!almacenId) { alert('Selecciona un almacén'); return }
     if (!cantidad || Number(cantidad) <= 0) { alert('Cantidad debe ser mayor a 0'); return }
+    if (producto?.controla_vencimiento && !fechaVencimiento) {
+      alert('Este producto controla vencimiento. Ingresá la fecha de vencimiento.')
+      return
+    }
 
     const proveedorNombre = proveedorId
       ? proveedores.find((p) => p.id === proveedorId)?.nombre
@@ -326,6 +332,8 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
         almacen_id: almacenId,
         cantidad: Number(cantidad),
         costo_unitario: costoUnitario ? Number(costoUnitario) : null,
+        codigo_lote: codigoLote.trim() || null,
+        fecha_vencimiento: fechaVencimiento || null,
         referencia_compra: proveedorId || null,
         notas: motivoCompleto || 'Entrada de mercadería',
       })
@@ -359,6 +367,19 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
         </select>
       </div>
 
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Código de lote</label>
+          <input type="text" value={codigoLote} onChange={(e) => setCodigoLote(e.target.value)} className="input" placeholder="L-2024-001" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Fecha vencimiento {producto?.controla_vencimiento && <span className="text-red-500">*</span>}
+          </label>
+          <input type="date" value={fechaVencimiento} onChange={(e) => setFechaVencimiento(e.target.value)} className="input" />
+        </div>
+      </div>
+
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
         <input type="text" value={notas} onChange={(e) => setNotas(e.target.value)} className="input" placeholder="Factura N°, observaciones..." />
@@ -387,6 +408,10 @@ function ModalAjuste({ productos, almacenes, onClose, onSave }) {
     if (!variante) { alert('Selecciona un producto'); return }
     if (!almacenId) { alert('Selecciona un almacén'); return }
     if (!cantidad || Number(cantidad) <= 0) { alert('Cantidad debe ser mayor a 0'); return }
+    if (producto?.controla_vencimiento && !fechaVencimiento) {
+      alert('Este producto controla vencimiento. Ingresá la fecha de vencimiento.')
+      return
+    }
     if (!motivo.trim()) { alert('El motivo es obligatorio para ajustes'); return }
 
     setGuardando(true)
@@ -467,6 +492,10 @@ function ModalDevolucion({ productos, almacenes, onClose, onSave }) {
     if (!variante) { alert('Selecciona un producto'); return }
     if (!almacenId) { alert('Selecciona un almacén'); return }
     if (!cantidad || Number(cantidad) <= 0) { alert('Cantidad debe ser mayor a 0'); return }
+    if (producto?.controla_vencimiento && !fechaVencimiento) {
+      alert('Este producto controla vencimiento. Ingresá la fecha de vencimiento.')
+      return
+    }
     if (!motivo.trim()) { alert('El motivo es obligatorio'); return }
 
     setGuardando(true)
