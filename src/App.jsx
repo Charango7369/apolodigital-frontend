@@ -12,6 +12,7 @@ import Movimientos from './pages/Movimientos'
 import Proveedores from './pages/Proveedores'
 import AdminNegocios from './pages/AdminNegocios'
 import Almacenes from './pages/Almacenes'
+import Vencimientos from './pages/Vencimientos'
 
 function PrivateRoute({ children }) {
   const { token, loading } = useAuth()
@@ -58,6 +59,7 @@ export default function App() {
         </PrivateRoute>
       }>
         <Route index element={<Dashboard />} />
+        <Route path="vencimientos" element={<Vencimientos />} />
         <Route path="productos" element={<Productos />} />
         <Route path="categorias" element={<Categorias />} />
         <Route path="movimientos" element={<Movimientos />} />

@@ -304,6 +304,12 @@ export const inventarioApi = {
     });
     return handleResponse(response);
   },
+  getLotesProximosVencer: async (dias = 180) => {
+    const response = await fetch(`${API_URL}/lotes/proximos-vencer?dias=${dias}`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
   // ============ MOVIMIENTOS ============
   crearMovimiento: async (data) => {
     const response = await fetch(`${API_URL}/movimientos`, {
