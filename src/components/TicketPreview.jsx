@@ -16,8 +16,12 @@ export default function TicketPreview({ venta, onClose, configNegocio }) {
   };
 
   const items = venta.detalles || venta.items || [];
-  const fecha = new Date(venta.created_at || new Date());
-
+// HORA ZULU
+  const fecha = new Date(
+    venta.created_at 
+      ? (venta.created_at.endsWith('Z') ? venta.created_at : `${venta.created_at}Z`) 
+      : new Date()
+  );
   const handlePrint = () => {
     imprimirTicket(venta, config);
   };

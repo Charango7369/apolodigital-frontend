@@ -52,15 +52,24 @@ export default function Ventas() {
     }
   }
 
-  const formatFecha = (fecha) => {
-    return new Date(fecha).toLocaleString('es-BO', {
-      day: '2-digit',
-      month: '2-digit',
+  const formatFecha = (fechaOriginal) => {
+    if (!fechaOriginal) return '';
+  
+    // Forzar el formato UTC si viene como string
+    const fechaSegura = typeof fechaOriginal === 'string' && !fechaOriginal.endsWith('Z') 
+      ? `${fechaOriginal}Z` 
+      : fechaOriginal;
+    
+    return new Date(fechaSegura).toLocaleString('es-BO', {
+      timeZone: 'America/La_Paz',
       year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
       hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
+      minute: '2-digit',
+      hour12: true
+    });
+  };
 
   if (loading) {
     return (

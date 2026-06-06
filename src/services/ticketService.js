@@ -16,13 +16,24 @@ const CONFIG_NEGOCIO = {
  * Genera el HTML del ticket para imprimir
  */
 export function generarTicketHTML(venta, config = CONFIG_NEGOCIO) {
-  const fecha = new Date(venta.created_at || new Date());
+  // 1. Interceptar la fecha del backend y forzarla a UTC absoluto
+  const rawDate = venta.created_at;
+  const fechaSegura = (typeof rawDate === 'string' && !rawDate.endsWith('Z')) 
+    ? `${rawDate}Z` 
+    : (rawDate || new Date());
+    
+  const fecha = new Date(fechaSegura);
+
+  // 2. Blindar el formato con la zona horaria geográfica explícita
   const fechaStr = fecha.toLocaleDateString('es-BO', {
+    timeZone: 'America/La_Paz',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
   });
+  
   const horaStr = fecha.toLocaleTimeString('es-BO', {
+    timeZone: 'America/La_Paz',
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -303,7 +314,11 @@ export function generarTicketTexto(venta, config = CONFIG_NEGOCIO) {
     return izq + ' '.repeat(Math.max(1, espacios)) + der;
   };
 
-  const fecha = new Date(venta.created_at || new Date());
+  const fecha = new Date(
+    venta.created_at 
+      ? (venta.created_at.endsWith('Z') ? venta.created_at : `${venta.created_at}Z`) 
+      : new Date()
+  );
   const items = venta.detalles || venta.items || [];
 
   let ticket = '';
