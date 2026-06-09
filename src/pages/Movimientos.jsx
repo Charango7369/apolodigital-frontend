@@ -1,3 +1,4 @@
+import BuscadorProductosAsync from '../components/BuscadorProductosAsync';
 import { useState, useEffect } from 'react'
 import { inventarioApi } from '../services/api'
 import {
@@ -33,7 +34,7 @@ export default function Movimientos() {
   const [filtroTipo, setFiltroTipo] = useState('')
   const [pagina, setPagina] = useState(1)
   const [totalPaginas, setTotalPaginas] = useState(1)
-  const [modalActivo, setModalActivo] = useState(null) // 'compra' | 'ajuste' | 'devolucion'
+  const [modalActivo, setModalActivo] = useState(null)
 
   useEffect(() => {
     cargarDatos()
@@ -72,9 +73,17 @@ export default function Movimientos() {
       setLoading(false)
     }
   }
-  const registrarCompra = async (data) => {
+
+  // ✅ MODIFICADO: Acepta el producto seleccionado como segundo parámetro
+  const registrarCompra = async (data, productoSeleccionado) => {
     try {
       await inventarioApi.crearLote(data)
+      
+      // ✅ Si el producto no está en la lista, agrégalo para que la tabla lo muestre
+      if (productoSeleccionado && !productos.find(p => p.id === productoSeleccionado.id)) {
+        setProductos(prev => [...prev, productoSeleccionado])
+      }
+      
       setModalActivo(null)
       setPagina(1)
       cargarMovimientos()
@@ -83,6 +92,7 @@ export default function Movimientos() {
       throw error
     }
   }
+
   const registrarMovimiento = async (data) => {
     try {
       await inventarioApi.crearMovimiento(data)
@@ -95,7 +105,6 @@ export default function Movimientos() {
     }
   }
 
-  // Helper para buscar nombre de producto desde variante_id
   const getProductoDeVariante = (varianteId) => {
     for (const p of productos) {
       const v = p.variantes?.find((v) => v.id === varianteId)
@@ -295,113 +304,174 @@ export default function Movimientos() {
 
 // ============ MODAL: Entrada de compra ============
 function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
-  const [productoId, setProductoId] = useState('')
-  const [almacenId, setAlmacenId] = useState(almacenes[0]?.id || '')
-  const [cantidad, setCantidad] = useState('')
-  const [costoUnitario, setCostoUnitario] = useState('')
-  const [proveedorId, setProveedorId] = useState('')
-  const [notas, setNotas] = useState('')
-  const [codigoLote, setCodigoLote] = useState('')
-  const [fechaVencimiento, setFechaVencimiento] = useState('')
-  const [guardando, setGuardando] = useState(false)
+  const [productoSeleccionado, setProductoSeleccionado] = useState(null);
+  const [almacenId, setAlmacenId] = useState('');
+  const [proveedorId, setProveedorId] = useState('');
+  const [cantidad, setCantidad] = useState('');
+  const [costoUnitario, setCostoUnitario] = useState('');
+  const [fechaVencimiento, setFechaVencimiento] = useState('');
+  const [observaciones, setObservaciones] = useState('');
+  const [guardando, setGuardando] = useState(false);
 
-  const producto = productos.find((p) => p.id === productoId)
-  const variante = producto?.variantes?.[0]
-
+  const variante = productoSeleccionado?.variantes?.[0];
+  
   const handleSubmit = async () => {
-    if (!variante) { alert('Selecciona un producto'); return }
-    if (!almacenId) { alert('Selecciona un almacén'); return }
-    if (!cantidad || Number(cantidad) <= 0) { alert('Cantidad debe ser mayor a 0'); return }
-    if (producto?.controla_vencimiento && !fechaVencimiento) {
-      alert('Este producto controla vencimiento. Ingresá la fecha de vencimiento.')
-      return
+    if (guardando) return;
+
+    if (!productoSeleccionado) {
+      alert('Debes seleccionar un producto de la lista.');
+      return;
     }
 
-    const proveedorNombre = proveedorId
-      ? proveedores.find((p) => p.id === proveedorId)?.nombre
-      : null
-    const motivoCompleto = [
-      proveedorNombre ? `Proveedor: ${proveedorNombre}` : null,
-      notas.trim() || null,
-    ].filter(Boolean).join(' — ')
+    if (!variante) {
+      alert('⚠️ El producto seleccionado no tiene variantes registradas.');
+      return;
+    }
 
-    setGuardando(true)
+    if (!almacenId) {
+      alert('⚠️ Debes seleccionar un almacén de la lista desplegable.');
+      return;
+    }
+
+    if (!proveedorId) {
+      alert('⚠️ Debes seleccionar un proveedor de la lista desplegable.');
+      return;
+    }
+
+    const cantidadNum = Number(cantidad);
+    const costoUnitarioNum = Number(costoUnitario);
+
+    if (!cantidad || Number.isNaN(cantidadNum) || cantidadNum <= 0) {
+      alert('La cantidad debe ser un número mayor a 0');
+      return;
+    }
+
+    if (!costoUnitario || Number.isNaN(costoUnitarioNum) || costoUnitarioNum <= 0) {
+      alert('El costo unitario debe ser un número mayor a 0');
+      return;
+    }
+
+    if (productoSeleccionado.controla_vencimiento && !fechaVencimiento) {
+      alert('Este producto controla vencimiento. Ingresá la fecha de vencimiento.');
+      return;
+    }
+
+    setGuardando(true);
     try {
-      await onSave({
+      const payload = {
         variante_id: variante.id,
         almacen_id: almacenId,
-        cantidad: Number(cantidad),
-        costo_unitario: costoUnitario ? Number(costoUnitario) : null,
-        codigo_lote: codigoLote.trim() || null,
+        proveedor_id: proveedorId,
+        cantidad: cantidadNum,
+        costo_unitario: costoUnitarioNum,
         fecha_vencimiento: fechaVencimiento || null,
-        referencia_compra: proveedorId || null,
-        notas: motivoCompleto || 'Entrada de mercadería',
-      })
-           
+        observaciones: observaciones || null,
+      };
+      
+      console.log('🚀 Payload enviado:', payload);
+      
+      // ✅ PASAR EL PRODUCTO SELECCIONADO COMO SEGUNDO PARÁMETRO
+      await onSave(payload, productoSeleccionado);
+      onClose();
+    } catch (error) {
+      console.error('Error al guardar compra:', error);
+      
+      let mensajeError = 'Error desconocido al guardar la compra.';
+      if (typeof error === 'string') {
+        mensajeError = error;
+      } else if (error?.message) {
+        mensajeError = error.message;
+      } else if (error?.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        mensajeError = Array.isArray(detail) ? detail.map(e => e.msg).join(', ') : detail;
+      }
+      
+      alert(`Error del servidor: ${mensajeError}`);
     } finally {
-      setGuardando(false)
+      setGuardando(false);
     }
-  }
+  };
 
   return (
-    <Modal title="Entrada de compra" onClose={onClose}>
-      <SelectProducto productos={productos} value={productoId} onChange={setProductoId} />
+    <Modal title="Nueva Compra" onClose={onClose}>
+      <BuscadorProductosAsync 
+        selectedProduct={productoSeleccionado} 
+        onChange={setProductoSeleccionado} 
+      />
+
       <SelectAlmacen almacenes={almacenes} value={almacenId} onChange={setAlmacenId} />
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad *</label>
-          <input type="number" min="0" step="1" value={cantidad} onChange={(e) => setCantidad(e.target.value)} className="input" placeholder="10" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Costo unit. (Bs.)</label>
-          <input type="number" min="0" step="0.01" value={costoUnitario} onChange={(e) => setCostoUnitario(e.target.value)} className="input" placeholder="50.00" />
-        </div>
-      </div>
-
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Proveedor</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Proveedor *</label>
         <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} className="input">
-          <option value="">— Sin proveedor —</option>
-          {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+          <option value="">— Selecciona un proveedor —</option>
+          {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
         </select>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Código de lote</label>
-          <input type="text" value={codigoLote} onChange={(e) => setCodigoLote(e.target.value)} className="input" placeholder="L-2024-001" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Fecha vencimiento {producto?.controla_vencimiento && <span className="text-red-500">*</span>}
-          </label>
-          <input type="date" value={fechaVencimiento} onChange={(e) => setFechaVencimiento(e.target.value)} className="input" />
-        </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad *</label>
+        <input
+          type="number"
+          step="0.01"
+          value={cantidad}
+          onChange={(e) => setCantidad(e.target.value)}
+          className="input"
+          placeholder="0.00"
+        />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
-        <input type="text" value={notas} onChange={(e) => setNotas(e.target.value)} className="input" placeholder="Factura N°, observaciones..." />
+        <label className="block text-sm font-medium text-gray-700 mb-1">Costo Unitario *</label>
+        <input
+          type="number"
+          step="0.01"
+          value={costoUnitario}
+          onChange={(e) => setCostoUnitario(e.target.value)}
+          className="input"
+          placeholder="0.00"
+        />
       </div>
 
-      <button onClick={handleSubmit} disabled={guardando} className="btn btn-success w-full py-3">
-        {guardando ? 'Registrando...' : 'Registrar entrada'}
+      {productoSeleccionado?.controla_vencimiento && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de Vencimiento *</label>
+          <input
+            type="date"
+            value={fechaVencimiento}
+            onChange={(e) => setFechaVencimiento(e.target.value)}
+            className="input"
+          />
+        </div>
+      )}
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
+        <textarea
+          value={observaciones}
+          onChange={(e) => setObservaciones(e.target.value)}
+          className="input"
+          rows="3"
+        />
+      </div>
+
+      <button onClick={handleSubmit} disabled={guardando} className="btn btn-primary w-full py-3">
+        {guardando ? 'Guardando...' : 'Guardar Compra'}
       </button>
     </Modal>
-  )
+  );
 }
 
 // ============ MODAL: Ajuste de stock ============
 function ModalAjuste({ productos, almacenes, onClose, onSave }) {
-  const [productoId, setProductoId] = useState('')
+  const [productoSeleccionado, setProductoId] = useState('')
   const [almacenId, setAlmacenId] = useState(almacenes[0]?.id || '')
   const [cantidad, setCantidad] = useState('')
   const [direccion, setDireccion] = useState('POSITIVO')
   const [motivo, setMotivo] = useState('')
   const [guardando, setGuardando] = useState(false)
 
-  const producto = productos.find((p) => p.id === productoId)
+  const producto = productos.find((p) => p.id === productoSeleccionado)
   const variante = producto?.variantes?.[0]
 
   const handleSubmit = async () => {
@@ -427,7 +497,7 @@ function ModalAjuste({ productos, almacenes, onClose, onSave }) {
 
   return (
     <Modal title="Ajuste de stock" onClose={onClose}>
-      <SelectProducto productos={productos} value={productoId} onChange={setProductoId} />
+      <SelectProducto productos={productos} value={productoSeleccionado} onChange={setProductoId} />
       <SelectAlmacen almacenes={almacenes} value={almacenId} onChange={setAlmacenId} />
 
       <div>
@@ -475,14 +545,14 @@ function ModalAjuste({ productos, almacenes, onClose, onSave }) {
 
 // ============ MODAL: Devolución ============
 function ModalDevolucion({ productos, almacenes, onClose, onSave }) {
-  const [productoId, setProductoId] = useState('')
+  const [productoSeleccionado, setProductoId] = useState('')
   const [almacenId, setAlmacenId] = useState(almacenes[0]?.id || '')
   const [cantidad, setCantidad] = useState('')
   const [origen, setOrigen] = useState('CLIENTE')
   const [motivo, setMotivo] = useState('')
   const [guardando, setGuardando] = useState(false)
 
-  const producto = productos.find((p) => p.id === productoId)
+  const producto = productos.find((p) => p.id === productoSeleccionado)
   const variante = producto?.variantes?.[0]
 
   const handleSubmit = async () => {
@@ -534,7 +604,7 @@ function ModalDevolucion({ productos, almacenes, onClose, onSave }) {
         </div>
       </div>
 
-      <SelectProducto productos={productos} value={productoId} onChange={setProductoId} />
+      <SelectProducto productos={productos} value={productoSeleccionado} onChange={setProductoId} />
       <SelectAlmacen almacenes={almacenes} value={almacenId} onChange={setAlmacenId} />
 
       <div>
