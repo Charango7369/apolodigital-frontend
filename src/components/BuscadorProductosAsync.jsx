@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Loader2, PackageX } from 'lucide-react';
 
-function BuscadorProductosAsync({ selectedProduct, onChange }) {
-  const [query, setQuery] = useState(selectedProduct?.nombre || '');
+function BuscadorProductosAsync({ selectedProduct, onChange, onProductosBuscados }) {
+  const [query, setQuery] = useState('');
   const [productosBuscados, setProductosBuscados] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -10,14 +10,12 @@ function BuscadorProductosAsync({ selectedProduct, onChange }) {
   const wrapperRef = useRef(null);
   const debounceRef = useRef(null);
 
-  // Sincronizar el input si el padre cambia el producto externamente
   useEffect(() => {
     if (selectedProduct?.nombre && selectedProduct.nombre !== query) {
       setQuery(selectedProduct.nombre);
     }
   }, [selectedProduct]);
 
-  // Cerrar dropdown si se hace clic fuera
   useEffect(() => {
     function handleClickOutside(event) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
@@ -28,7 +26,6 @@ function BuscadorProductosAsync({ selectedProduct, onChange }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Petición HTTP
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
@@ -56,6 +53,11 @@ function BuscadorProductosAsync({ selectedProduct, onChange }) {
           
           setProductosBuscados(listaProductos);
           setIsOpen(true);
+          
+          // ✅ Notificar al padre sobre los productos encontrados
+          if (onProductosBuscados && listaProductos.length > 0) {
+            onProductosBuscados(listaProductos);
+          }
         } catch (error) {
           console.error('Error buscando productos:', error);
           setProductosBuscados([]);
@@ -72,13 +74,12 @@ function BuscadorProductosAsync({ selectedProduct, onChange }) {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query]);
+  }, [query, onProductosBuscados]);
 
-  // ✅ AQUÍ ESTÁ LA CLAVE: Pasamos el objeto completo, no solo el ID
   const handleSelect = (producto) => {
     setQuery(producto.nombre);
     setIsOpen(false);
-    onChange(producto); 
+    onChange(producto);
   };
 
   return (

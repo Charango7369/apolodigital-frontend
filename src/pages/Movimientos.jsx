@@ -1,12 +1,11 @@
 import BuscadorProductosAsync from '../components/BuscadorProductosAsync';
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { inventarioApi } from '../services/api'
 import {
   Package,
   TrendingUp,
   TrendingDown,
   RefreshCw,
-  Plus,
   X,
   ArrowDownCircle,
   ArrowUpCircle,
@@ -28,6 +27,7 @@ const TIPO_LABELS = {
 export default function Movimientos() {
   const [movimientos, setMovimientos] = useState([])
   const [productos, setProductos] = useState([])
+  const [productosCache, setProductosCache] = useState({}) // ✅ Caché por ID
   const [almacenes, setAlmacenes] = useState([])
   const [proveedores, setProveedores] = useState([])
   const [loading, setLoading] = useState(true)
@@ -35,6 +35,8 @@ export default function Movimientos() {
   const [pagina, setPagina] = useState(1)
   const [totalPaginas, setTotalPaginas] = useState(1)
   const [modalActivo, setModalActivo] = useState(null)
+  
+  const productosCacheRef = useRef({}) // Ref para acceso inmediato
 
   useEffect(() => {
     cargarDatos()
@@ -59,14 +61,69 @@ export default function Movimientos() {
     }
   }
 
+  // ✅ NUEVA FUNCIÓN: Fetch de productos faltantes
+  const fetchProductosFaltantes = async (varianteIds) => {
+    const idsFaltantes = varianteIds.filter(id => !productosCacheRef.current[id])
+    
+    if (idsFaltantes.length === 0) return
+    
+    console.log(`🔍 Buscando ${idsFaltantes.length} productos faltantes...`)
+    
+    const nuevosProductos = {}
+    
+    await Promise.all(
+      idsFaltantes.map(async (varianteId) => {
+        try {
+          const token = localStorage.getItem('token')
+          const API_URL = import.meta.env.VITE_API_URL || 'https://apolodigital-inventario-production.up.railway.app/api/v1'
+          
+          // Buscar el producto que contiene esta variante
+          const response = await fetch(
+            `${API_URL}/productos?variante_id=${varianteId}&per_page=1`,
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                ...(token && { Authorization: `Bearer ${token}` })
+              }
+            }
+          )
+          
+          if (response.ok) {
+            const data = await response.json()
+            const producto = data.items?.[0] || data[0]?.[0]
+            
+            if (producto) {
+              nuevosProductos[varianteId] = producto
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching variante ${varianteId}:`, error)
+        }
+      })
+    )
+    
+    if (Object.keys(nuevosProductos).length > 0) {
+      productosCacheRef.current = { ...productosCacheRef.current, ...nuevosProductos }
+      setProductosCache(prev => ({ ...prev, ...nuevosProductos }))
+      console.log(`✅ Cacheados ${Object.keys(nuevosProductos).length} productos`)
+    }
+  }
+
   const cargarMovimientos = async () => {
     try {
       setLoading(true)
       const params = { page: pagina, per_page: 20 }
       if (filtroTipo) params.tipo = filtroTipo
       const data = await inventarioApi.getMovimientos(params)
-      setMovimientos(data.items || [])
+      
+      const movimientosList = data.items || []
+      setMovimientos(movimientosList)
       setTotalPaginas(data.pages || 1)
+      
+      // ✅ Fetch de productos faltantes
+      const varianteIds = movimientosList.map(m => m.variante_id).filter(Boolean)
+      await fetchProductosFaltantes(varianteIds)
+      
     } catch (e) {
       console.error('Error cargando movimientos:', e)
     } finally {
@@ -74,20 +131,15 @@ export default function Movimientos() {
     }
   }
 
-  // ✅ MODIFICADO: Acepta el producto seleccionado como segundo parámetro
-  const registrarCompra = async (data, productoSeleccionado) => {
+  const registrarCompra = async (data) => {
     try {
       await inventarioApi.crearLote(data)
-      
-      // ✅ Si el producto no está en la lista, agrégalo para que la tabla lo muestre
-      if (productoSeleccionado && !productos.find(p => p.id === productoSeleccionado.id)) {
-        setProductos(prev => [...prev, productoSeleccionado])
-      }
-      
       setModalActivo(null)
       setPagina(1)
-      cargarMovimientos()
+      await cargarDatos()
+      await cargarMovimientos()
     } catch (error) {
+      console.error('Error al registrar compra:', error)
       alert(error.message || 'Error al registrar compra')
       throw error
     }
@@ -98,18 +150,47 @@ export default function Movimientos() {
       await inventarioApi.crearMovimiento(data)
       setModalActivo(null)
       setPagina(1)
-      cargarMovimientos()
+      await cargarDatos()
+      await cargarMovimientos()
     } catch (error) {
       alert(error.message || 'Error al registrar movimiento')
       throw error
     }
   }
 
+  const agregarProductosAlCache = (productosNuevos) => {
+    const nuevos = {}
+    productosNuevos.forEach(p => {
+      if (p.variantes) {
+        p.variantes.forEach(v => {
+          nuevos[v.id] = p
+        })
+      }
+    })
+    
+    productosCacheRef.current = { ...productosCacheRef.current, ...nuevos }
+    setProductosCache(prev => ({ ...prev, ...nuevos }))
+  }
+
+  // ✅ MEJORADA: Busca en productos, caché y productosCache
   const getProductoDeVariante = (varianteId) => {
+    if (!varianteId) return { nombre: '—', sku: null }
+
+    // 1. Buscar en productos principales
     for (const p of productos) {
-      const v = p.variantes?.find((v) => v.id === varianteId)
+      if (!p.variantes) continue
+      const v = p.variantes.find((v) => v.id === varianteId)
       if (v) return { nombre: p.nombre, sku: v.sku }
     }
+
+    // 2. Buscar en caché de productos buscados
+    if (productosCache[varianteId]) {
+      const p = productosCache[varianteId]
+      const v = p.variantes?.find((v) => v.id === varianteId)
+      return { nombre: p.nombre, sku: v?.sku || null }
+    }
+
+    // 3. No encontrado
     return { nombre: 'Producto no encontrado', sku: null }
   }
 
@@ -239,7 +320,9 @@ export default function Movimientos() {
                       <td className="px-4 py-3 text-right text-gray-600">
                         {m.costo_unitario ? `Bs. ${Number(m.costo_unitario).toFixed(2)}` : '—'}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{m.motivo || '—'}</td>
+                      <td className="px-4 py-3 text-gray-500 max-w-xs truncate">
+                        {m.motivo && m.motivo.trim() ? m.motivo : '—'}
+                      </td>
                     </tr>
                   )
                 })}
@@ -280,6 +363,7 @@ export default function Movimientos() {
           proveedores={proveedores}
           onClose={() => setModalActivo(null)}
           onSave={registrarCompra}
+          onProductosBuscados={agregarProductosAlCache}
         />
       )}
       {modalActivo === 'ajuste' && (
@@ -303,7 +387,7 @@ export default function Movimientos() {
 }
 
 // ============ MODAL: Entrada de compra ============
-function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
+function ModalCompra({ productos, almacenes, proveedores, onClose, onSave, onProductosBuscados }) {
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
   const [almacenId, setAlmacenId] = useState('');
   const [proveedorId, setProveedorId] = useState('');
@@ -316,20 +400,6 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
 
   const variante = productoSeleccionado?.variantes?.[0];
 
-  // 🔍 DIAGNÓSTICO: Ver qué datos tiene el producto seleccionado
-  useEffect(() => {
-    if (productoSeleccionado) {
-      console.log('🔍 PRODUCTO SELECCIONADO - Diagnóstico completo:');
-      console.log('  - ID:', productoSeleccionado.id);
-      console.log('  - Nombre:', productoSeleccionado.nombre);
-      console.log('  - Controla Lote:', productoSeleccionado.controla_lote);
-      console.log('  - Controla Vencimiento:', productoSeleccionado.controla_vencimiento);
-      console.log('  - Categoría:', productoSeleccionado.categoria);
-      console.log('  - Categoría Nombre:', productoSeleccionado.categoria?.nombre);
-      console.log('  - Variantes:', productoSeleccionado.variantes);
-    }
-  }, [productoSeleccionado]);
-  
   const handleSubmit = async () => {
     if (guardando) return;
 
@@ -378,14 +448,12 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
         fecha_vencimiento: fechaVencimiento || null,
         observaciones: observaciones || null,
       };
-      
-      console.log('🚀 Payload enviado:', payload);
-      
-      await onSave(payload, productoSeleccionado);
+
+      await onSave(payload);
       onClose();
     } catch (error) {
       console.error('Error al guardar compra:', error);
-      
+
       let mensajeError = 'Error desconocido al guardar la compra.';
       if (typeof error === 'string') {
         mensajeError = error;
@@ -395,7 +463,7 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
         const detail = error.response.data.detail;
         mensajeError = Array.isArray(detail) ? detail.map(e => e.msg).join(', ') : detail;
       }
-      
+
       alert(`Error del servidor: ${mensajeError}`);
     } finally {
       setGuardando(false);
@@ -404,9 +472,10 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
 
   return (
     <Modal title="Nueva Compra" onClose={onClose}>
-      <BuscadorProductosAsync 
-        selectedProduct={productoSeleccionado} 
-        onChange={setProductoSeleccionado} 
+      <BuscadorProductosAsync
+        selectedProduct={productoSeleccionado}
+        onChange={setProductoSeleccionado}
+        onProductosBuscados={onProductosBuscados}
       />
 
       <SelectAlmacen almacenes={almacenes} value={almacenId} onChange={setAlmacenId} />
@@ -443,11 +512,8 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
         />
       </div>
 
-      {/* ✅ CAMPO DE NÚMERO DE LOTE - SIEMPRE VISIBLE PARA PRUEBAS */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Número de Lote
-        </label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Número de Lote</label>
         <input
           type="text"
           value={numeroLote}
@@ -455,25 +521,18 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
           className="input"
           placeholder="Ej: L2024A001"
         />
-        <p className="text-xs text-gray-500 mt-1">
-          Opcional - Para trazabilidad del producto
-        </p>
+        <p className="text-xs text-gray-500 mt-1">Opcional - Para trazabilidad del producto</p>
       </div>
 
-      {/* ✅ CAMPO DE FECHA DE VENCIMIENTO - SIEMPRE VISIBLE PARA PRUEBAS */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Fecha de Vencimiento
-        </label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de Vencimiento</label>
         <input
           type="date"
           value={fechaVencimiento}
           onChange={(e) => setFechaVencimiento(e.target.value)}
           className="input"
         />
-        <p className="text-xs text-gray-500 mt-1">
-          Opcional - Fecha límite de uso del producto
-        </p>
+        <p className="text-xs text-gray-500 mt-1">Opcional - Fecha límite de uso del producto</p>
       </div>
 
       <div>
@@ -510,7 +569,6 @@ function ModalAjuste({ productos, almacenes, onClose, onSave }) {
     if (!variante) { alert('Selecciona un producto'); return }
     if (!almacenId) { alert('Selecciona un almacén'); return }
     if (!cantidad || Number(cantidad) <= 0) { alert('Cantidad debe ser mayor a 0'); return }
-    
     if (!motivo.trim()) { alert('El motivo es obligatorio para ajustes'); return }
 
     setGuardando(true)
@@ -591,7 +649,6 @@ function ModalDevolucion({ productos, almacenes, onClose, onSave }) {
     if (!variante) { alert('Selecciona un producto'); return }
     if (!almacenId) { alert('Selecciona un almacén'); return }
     if (!cantidad || Number(cantidad) <= 0) { alert('Cantidad debe ser mayor a 0'); return }
-    
     if (!motivo.trim()) { alert('El motivo es obligatorio'); return }
 
     setGuardando(true)
