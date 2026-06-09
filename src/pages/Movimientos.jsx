@@ -302,7 +302,6 @@ export default function Movimientos() {
   )
 }
 
-
 // ============ MODAL: Entrada de compra ============
 function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
@@ -316,6 +315,20 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
   const [guardando, setGuardando] = useState(false);
 
   const variante = productoSeleccionado?.variantes?.[0];
+
+  // 🔍 DIAGNÓSTICO: Ver qué datos tiene el producto seleccionado
+  useEffect(() => {
+    if (productoSeleccionado) {
+      console.log('🔍 PRODUCTO SELECCIONADO - Diagnóstico completo:');
+      console.log('  - ID:', productoSeleccionado.id);
+      console.log('  - Nombre:', productoSeleccionado.nombre);
+      console.log('  - Controla Lote:', productoSeleccionado.controla_lote);
+      console.log('  - Controla Vencimiento:', productoSeleccionado.controla_vencimiento);
+      console.log('  - Categoría:', productoSeleccionado.categoria);
+      console.log('  - Categoría Nombre:', productoSeleccionado.categoria?.nombre);
+      console.log('  - Variantes:', productoSeleccionado.variantes);
+    }
+  }, [productoSeleccionado]);
   
   const handleSubmit = async () => {
     if (guardando) return;
@@ -350,17 +363,6 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
 
     if (!costoUnitario || Number.isNaN(costoUnitarioNum) || costoUnitarioNum <= 0) {
       alert('El costo unitario debe ser un número mayor a 0');
-      return;
-    }
-
-    // Validación de lote y vencimiento si el producto lo requiere
-    if (productoSeleccionado.controla_lote && !numeroLote.trim()) {
-      alert('Este producto requiere número de lote. Ingrésalo.');
-      return;
-    }
-
-    if (productoSeleccionado.controla_vencimiento && !fechaVencimiento) {
-      alert('Este producto controla vencimiento. Ingresá la fecha de vencimiento.');
       return;
     }
 
@@ -441,53 +443,38 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave }) {
         />
       </div>
 
-      {/* ✅ CAMPO DE NÚMERO DE LOTE - Siempre visible o condicional */}
-      {(productoSeleccionado?.controla_lote || productoSeleccionado?.categoria?.nombre?.toLowerCase().includes('farmac')) && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Número de Lote {productoSeleccionado?.controla_lote && '*'}
-          </label>
-          <input
-            type="text"
-            value={numeroLote}
-            onChange={(e) => setNumeroLote(e.target.value)}
-            className="input"
-            placeholder="Ej: L2024A001"
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            Requerido para trazabilidad del producto
-          </p>
-        </div>
-      )}
+      {/* ✅ CAMPO DE NÚMERO DE LOTE - SIEMPRE VISIBLE PARA PRUEBAS */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Número de Lote
+        </label>
+        <input
+          type="text"
+          value={numeroLote}
+          onChange={(e) => setNumeroLote(e.target.value)}
+          className="input"
+          placeholder="Ej: L2024A001"
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          Opcional - Para trazabilidad del producto
+        </p>
+      </div>
 
-      {/* ✅ CAMPO DE FECHA DE VENCIMIENTO - Siempre visible o condicional */}
-      {(productoSeleccionado?.controla_vencimiento || productoSeleccionado?.categoria?.nombre?.toLowerCase().includes('farmac')) && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Fecha de Vencimiento {productoSeleccionado?.controla_vencimiento && '*'}
-          </label>
-          <input
-            type="date"
-            value={fechaVencimiento}
-            onChange={(e) => setFechaVencimiento(e.target.value)}
-            className="input"
-            min={new Date().toISOString().split('T')[0]}
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            Fecha límite de uso del producto
-          </p>
-        </div>
-      )}
-
-      {/* 💡 Mostrar hint si el producto no controla lote/vencimiento pero debería */}
-      {productoSeleccionado && !productoSeleccionado.controla_lote && !productoSeleccionado.controla_vencimiento && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-          <p className="text-xs text-yellow-800">
-            💡 <strong>Nota:</strong> Este producto no tiene configurado el control de lote/vencimiento. 
-            Si es un medicamento o producto farmacéutico, contacta al administrador para activar estas opciones.
-          </p>
-        </div>
-      )}
+      {/* ✅ CAMPO DE FECHA DE VENCIMIENTO - SIEMPRE VISIBLE PARA PRUEBAS */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Fecha de Vencimiento
+        </label>
+        <input
+          type="date"
+          value={fechaVencimiento}
+          onChange={(e) => setFechaVencimiento(e.target.value)}
+          className="input"
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          Opcional - Fecha límite de uso del producto
+        </p>
+      </div>
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
