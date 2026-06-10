@@ -321,7 +321,13 @@ export default function Movimientos() {
                         {m.costo_unitario ? `Bs. ${Number(m.costo_unitario).toFixed(2)}` : '—'}
                       </td>
                       <td className="px-4 py-3 text-gray-500 max-w-xs truncate">
-                        {m.motivo && m.motivo.trim() ? m.motivo : '—'}
+                        {m.motivo && m.motivo.trim() ? (
+                          m.motivo
+                        ) : m.tipo === 'ENTRADA_COMPRA' ? (
+                          <span className="text-gray-400 italic">Compra</span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
                       </td>
                     </tr>
                   )
@@ -396,6 +402,7 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave, onPro
   const [numeroLote, setNumeroLote] = useState('');
   const [fechaVencimiento, setFechaVencimiento] = useState('');
   const [observaciones, setObservaciones] = useState('');
+  const [motivo, setMotivo] = useState(''); // ✅ CAMBIADO: motivo en lugar de observaciones
   const [guardando, setGuardando] = useState(false);
 
   const variante = productoSeleccionado?.variantes?.[0];
@@ -446,7 +453,7 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave, onPro
         costo_unitario: costoUnitarioNum,
         numero_lote: numeroLote.trim() || null,
         fecha_vencimiento: fechaVencimiento || null,
-        observaciones: observaciones || null,
+        motivo: motivo.trim() || 'Compra de proveedor', // ✅ CAMBIADO: motivo en lugar de observaciones
       };
 
       await onSave(payload);
@@ -535,15 +542,17 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave, onPro
         <p className="text-xs text-gray-500 mt-1">Opcional - Fecha límite de uso del producto</p>
       </div>
 
+      
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
         <textarea
-          value={observaciones}
-          onChange={(e) => setObservaciones(e.target.value)}
+          value={motivo}
+          onChange={(e) => setMotivo(e.target.value)}
           className="input"
           rows="3"
-          placeholder="Información adicional..."
+          placeholder="Ej: Compra regular, reposición de stock, oferta especial..."
         />
+        <p className="text-xs text-gray-500 mt-1">Opcional - Razón de la compra</p>
       </div>
 
       <button onClick={handleSubmit} disabled={guardando} className="btn btn-primary w-full py-3">
