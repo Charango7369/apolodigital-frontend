@@ -1,13 +1,11 @@
 // ApoloDigital — Service Worker
-// Filosofía: este SW solo maneja el SHELL (HTML, JS, CSS, iconos).
-// Los datos de la API se manejan en IndexedDB via offlineDB.js — no aquí.
-// Las peticiones a api.apolodigital.lat / Railway son cross-origin y no las tocamos.
+// Este SW solo maneja el SHELL: HTML, JS, CSS, manifest, iconos e imágenes.
+// Las búsquedas, compras, ventas y datos dinámicos NO se cachean aquí.
 
-const SW_VERSION = 'v2';
+const SW_VERSION = 'v3';
 const STATIC_CACHE = `apolodigital-static-${SW_VERSION}`;
 const RUNTIME_CACHE = `apolodigital-runtime-${SW_VERSION}`;
 
-// Archivos mínimos del shell que se precachean
 const SHELL_FILES = [
   '/',
   '/index.html',
@@ -16,32 +14,30 @@ const SHELL_FILES = [
   '/icons/icon-512x512.png',
 ];
 
-// ============ INSTALL ============
 self.addEventListener('install', (event) => {
   console.log(`[SW ${SW_VERSION}] Instalando...`);
+
   event.waitUntil(
     caches
       .open(STATIC_CACHE)
-      .then((cache) => {
-        console.log('[SW] Precacheando shell');
-        // addAll falla si uno falla. Usamos put individual para ser tolerantes.
-        return Promise.all(
+      .then((cache) =>
+        Promise.all(
           SHELL_FILES.map((url) =>
             fetch(url, { cache: 'reload' })
               .then((res) => {
-                if (res.ok) return cache.put(url, res);
+                if (res.ok) return cache.put(url, res.clone());
               })
               .catch((err) => console.warn(`[SW] No se pudo precachear ${url}:`, err))
           )
-        );
-      })
+        )
+      )
       .then(() => self.skipWaiting())
   );
 });
 
-// ============ ACTIVATE ============
 self.addEventListener('activate', (event) => {
   console.log(`[SW ${SW_VERSION}] Activando...`);
+
   event.waitUntil(
     caches
       .keys()
@@ -59,37 +55,81 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// ============ FETCH ============
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // 1. Solo interceptamos GETs same-origin. Todo lo demás (POST, API cross-origin) pasa directo.
   if (request.method !== 'GET') return;
   if (url.origin !== self.location.origin) return;
 
-  // 2. Navegaciones (HTML): network-first, fallback a index.html cacheado
+  // Nunca interceptar datos dinámicos, búsquedas o API.
+  if (debePasarDirecto(url, request)) {
+    return;
+  }
+
+  // Navegaciones del frontend: intenta red, si no hay red usa index.html.
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          // Actualizar cache del index
-          const copy = response.clone();
-          caches.open(STATIC_CACHE).then((cache) => cache.put('/index.html', copy));
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(STATIC_CACHE).then((cache) => cache.put('/index.html', copy));
+          }
+
           return response;
         })
         .catch(() =>
-          caches.match('/index.html')
+          caches
+            .match('/index.html')
             .then((r) => r || caches.match('/'))
-            .then((r) => r || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/html' } }))
-         )
+            .then(
+              (r) =>
+                r ||
+                new Response('Offline', {
+                  status: 503,
+                  headers: { 'Content-Type': 'text/html' },
+                })
+            )
+        )
     );
+
     return;
   }
 
-  // 3. Assets (JS, CSS, iconos, imágenes): stale-while-revalidate
-  event.respondWith(staleWhileRevalidate(request));
+  // Solo cachear assets reales del frontend.
+  if (esAssetEstatico(request)) {
+    event.respondWith(staleWhileRevalidate(request));
+  }
 });
+
+function debePasarDirecto(url, request) {
+  const path = url.pathname;
+
+  if (path.startsWith('/api/')) return true;
+  if (path.startsWith('/productos')) return true;
+  if (path.startsWith('/variantes')) return true;
+  if (path.startsWith('/compras')) return true;
+  if (path.startsWith('/ventas')) return true;
+  if (path.startsWith('/stock')) return true;
+  if (path.startsWith('/inventario')) return true;
+
+  // Las búsquedas suelen venir como ?q=, ?search=, ?buscar=, etc.
+  // No deben cachearse porque cambian mientras el usuario escribe.
+  if (url.search && request.mode !== 'navigate') return true;
+
+  return false;
+}
+
+function esAssetEstatico(request) {
+  return [
+    'script',
+    'style',
+    'image',
+    'font',
+    'manifest',
+  ].includes(request.destination);
+}
 
 async function staleWhileRevalidate(request) {
   const cache = await caches.open(RUNTIME_CACHE);
@@ -100,15 +140,14 @@ async function staleWhileRevalidate(request) {
       if (response.ok) {
         cache.put(request, response.clone());
       }
+
       return response;
     })
-    .catch(() => cached); // si red falla, devuelve el cacheado
+    .catch(() => cached);
 
-  // Devolver el cacheado inmediatamente si existe, sino esperar a la red
   return cached || fetchPromise;
 }
 
-// ============ MENSAJES ============
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();
