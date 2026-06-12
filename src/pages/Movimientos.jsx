@@ -92,9 +92,21 @@ export default function Movimientos() {
             const data = await response.json()
             const producto = data.items?.[0] || data[0]?.[0]
             
-            if (producto) {
-              nuevosProductos[varianteId] = producto
-            }
+              if (producto) {
+                // Validar que el producto recibido realmente contenga la variante solicitada
+                const contieneVariante = producto.variantes?.some(v => v.id === varianteId) || producto.id === varianteId;
+              
+                if (contieneVariante) {
+                  nuevosProductos[varianteId] = producto;
+                } else {
+                  // El backend ignoró el filtro y devolvió basura. 
+                  // Guardamos un placeholder para no romper la tabla ni reintentar infinitamente.
+                  nuevosProductos[varianteId] = { 
+                    nombre: 'Error de sincronización', 
+                    variantes: [{ id: varianteId, sku: null }] 
+                  };
+                }
+              }
           }
         } catch (error) {
           console.error(`Error fetching variante ${varianteId}:`, error)
