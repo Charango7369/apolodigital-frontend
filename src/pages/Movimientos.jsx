@@ -608,7 +608,13 @@ function ModalAjuste({ productos, almacenes, onClose, onSave }) {
 
   return (
     <Modal title="Ajuste de stock" onClose={onClose}>
-      <SelectProducto productos={productos} value={productoSeleccionado} onChange={setProductoId} />
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">Producto *</label>
+        <BuscadorProductosAsync 
+          selectedProduct={productos.find(p => p.id === productoSeleccionado) || null} 
+          onChange={(producto) => setProductoId(producto ? producto.id : '')} 
+        />
+      </div>
       <SelectAlmacen almacenes={almacenes} value={almacenId} onChange={setAlmacenId} />
 
       <div>
@@ -714,7 +720,13 @@ function ModalDevolucion({ productos, almacenes, onClose, onSave }) {
         </div>
       </div>
 
-      <SelectProducto productos={productos} value={productoSeleccionado} onChange={setProductoId} />
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">Producto *</label>
+        <BuscadorProductosAsync 
+          selectedProduct={productos.find(p => p.id === productoSeleccionado) || null} 
+          onChange={(producto) => setProductoId(producto ? producto.id : '')} 
+        />
+      </div>
       <SelectAlmacen almacenes={almacenes} value={almacenId} onChange={setAlmacenId} />
 
       <div>
