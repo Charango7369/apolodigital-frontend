@@ -5,3 +5,9 @@ node_modules/
 extraer_movimientos.sh
 movimientos_fragmento.txt
 dist/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
