@@ -1,1 +1,7 @@
 node_modules/
+.env
+
+# Archivos de investigación/debug de esta sesión
+extraer_movimientos.sh
+movimientos_fragmento.txt
+dist/

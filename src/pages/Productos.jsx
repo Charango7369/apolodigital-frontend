@@ -208,6 +208,7 @@ function ProductoModal({ producto, categorias, onClose, onSave }) {
     unidad_medida: producto?.unidad_medida || 'unidad',
     precio_venta: varianteDefault?.precio_venta || producto?.precio_venta || '',
     precio_costo: varianteDefault?.precio_costo || '',
+    sku: varianteDefault?.sku || '',
     es_servicio: producto?.es_servicio || false,
   })
   const [saving, setSaving] = useState(false)
@@ -263,6 +264,18 @@ function ProductoModal({ producto, categorias, onClose, onSave }) {
                 <option key={cat.id} value={cat.id}>{cat.nombre}</option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              SKU / Código interno
+            </label>
+            <input
+              type="text"
+              value={form.sku}
+              onChange={(e) => setForm({ ...form, sku: e.target.value })}
+              className="input"
+              placeholder="Ej: MOTO-LL-02"
+            />
           </div>
           
           <div className="grid grid-cols-2 gap-4">

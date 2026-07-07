@@ -16,22 +16,19 @@ function BuscadorProductosAsync({ selectedProduct, onChange, onProductosBuscados
     onProductosBuscadosRef.current = onProductosBuscados;
   }, [onProductosBuscados]);
 
-  // Evita el bucle infinito de re-renders cuando el padre limpia el formulario
   useEffect(() => {
     if (selectedProduct?.nombre && selectedProduct.nombre !== query) {
       setQuery(selectedProduct.nombre);
     } else if (!selectedProduct) {
-      // Si el padre manda null (reset), limpiamos el input
       setQuery('');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProduct]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(query.trim());
     }, 300);
-
     return () => clearTimeout(timer);
   }, [query]);
 
@@ -56,10 +53,7 @@ function BuscadorProductosAsync({ selectedProduct, onChange, onProductosBuscados
       setIsLoading(true);
       try {
         const token = localStorage.getItem('token');
-        const API_URL =
-          import.meta.env.VITE_API_URL ||
-          'https://apolodigital-inventario-production.up.railway.app/api/v1';
-
+        const API_URL = import.meta.env.VITE_API_URL;
         const response = await fetch(
           `${API_URL}/productos?busqueda=${encodeURIComponent(texto)}&solo_activos=true&per_page=20`,
           {
@@ -76,27 +70,23 @@ function BuscadorProductosAsync({ selectedProduct, onChange, onProductosBuscados
         const data = await response.json();
         let listaProductos = [];
         if (Array.isArray(data) && Array.isArray(data[0])) {
-            listaProductos = data[0]; 
+          listaProductos = data[0];
         } else {
-            listaProductos = data?.items || data || []; 
+          listaProductos = data?.items || data || [];
         }
 
         setProductosBuscados(listaProductos);
 
-        // Candado visual: Solo abrimos el menú si el usuario tiene el cursor en el input
         const inputActivo = wrapperRef.current?.querySelector('input');
         if (document.activeElement === inputActivo) {
-            setIsOpen(listaProductos.length > 0);
+          setIsOpen(listaProductos.length > 0);
         }
 
         if (onProductosBuscadosRef.current && listaProductos.length > 0) {
           onProductosBuscadosRef.current(listaProductos);
         }
       } catch (error) {
-        // Barrera contra colisiones de red
-        if (error.name === 'AbortError') {
-          return; 
-        }
+        if (error.name === 'AbortError') return;
         console.error('Error buscando productos:', error);
         setProductosBuscados([]);
         setIsOpen(false);
@@ -109,10 +99,7 @@ function BuscadorProductosAsync({ selectedProduct, onChange, onProductosBuscados
     };
 
     buscar();
-
-    return () => {
-      controller.abort();
-    };
+    return () => controller.abort();
   }, [debouncedQuery]);
 
   const handleSelect = useCallback(

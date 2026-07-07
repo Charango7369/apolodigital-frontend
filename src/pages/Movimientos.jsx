@@ -75,7 +75,7 @@ export default function Movimientos() {
       idsFaltantes.map(async (varianteId) => {
         try {
           const token = localStorage.getItem('token')
-          const API_URL = import.meta.env.VITE_API_URL || 'https://apolodigital-inventario-production.up.railway.app/api/v1'
+          const API_URL = import.meta.env.VITE_API_URL;
           
           // Buscar el producto que contiene esta variante
           const response = await fetch(
@@ -529,6 +529,7 @@ function ModalCompra({ productos, almacenes, proveedores, onClose, onSave, onPro
           className="input"
           placeholder="0.00"
         />
+        <p className="text-xs text-gray-500 mt-1">Precio de compra al proveedor, no el precio de venta al cliente</p>
       </div>
 
       <div>
@@ -608,13 +609,10 @@ function ModalAjuste({ productos, almacenes, onClose, onSave }) {
 
   return (
     <Modal title="Ajuste de stock" onClose={onClose}>
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">Producto *</label>
-        <BuscadorProductosAsync 
-          selectedProduct={productos.find(p => p.id === productoSeleccionado) || null} 
-          onChange={(producto) => setProductoId(producto ? producto.id : '')} 
-        />
-      </div>
+      <BuscadorProductosAsync 
+        selectedProduct={productos.find(p => p.id === productoSeleccionado) || null} 
+        onChange={(producto) => setProductoId(producto ? producto.id : '')} 
+      />
       <SelectAlmacen almacenes={almacenes} value={almacenId} onChange={setAlmacenId} />
 
       <div>
@@ -720,13 +718,10 @@ function ModalDevolucion({ productos, almacenes, onClose, onSave }) {
         </div>
       </div>
 
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">Producto *</label>
-        <BuscadorProductosAsync 
-          selectedProduct={productos.find(p => p.id === productoSeleccionado) || null} 
-          onChange={(producto) => setProductoId(producto ? producto.id : '')} 
-        />
-      </div>
+      <BuscadorProductosAsync 
+        selectedProduct={productos.find(p => p.id === productoSeleccionado) || null} 
+        onChange={(producto) => setProductoId(producto ? producto.id : '')} 
+      />
       <SelectAlmacen almacenes={almacenes} value={almacenId} onChange={setAlmacenId} />
 
       <div>

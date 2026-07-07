@@ -1,6 +1,6 @@
 import { offlineDB } from './offlineDB';
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://apolodigital-inventario-production.up.railway.app/api/v1';
+const API_URL = import.meta.env.VITE_API_URL;
 
 // Helpers
 const getHeaders = () => {
@@ -63,15 +63,11 @@ export const inventarioApi = {
       });
       const data = await handleResponse(response);
       
-      // La API devuelve { items: [...], total, page, per_page, pages }
       const productos = data.items || data || [];
-      
-      // Guardar en cache local
       await offlineDB.saveProductos(productos);
       
       return data;
     } catch (error) {
-      // Si falla la red, intentar desde cache
       console.log('[API] Error de red, usando cache:', error.message);
       const cached = await offlineDB.getProductos();
       if (cached.length > 0) {
@@ -215,21 +211,22 @@ export const inventarioApi = {
     return handleResponse(response);
   },
 
-  /**
-   * Busca una variante por código de barras.
-   *
-   * Lógica de fallback:
-   *  - Online y código existe → API + guardar en cache
-   *  - Online y código NO existe → retorna null (NO busca offline, el dato es real)
-   *  - Offline (error de red) → busca en IndexedDB
-   *
-   * @returns {Promise<object|null>} la variante o null si no se encontró
-   */
+  getStockActual: async (filtros = {}) => {
+    const queryParams = new URLSearchParams(filtros).toString();
+    const url = queryParams 
+      ? `${API_URL}/reportes/stock-actual?${queryParams}` 
+      : `${API_URL}/reportes/stock-actual`;
+      
+    const response = await fetch(url, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
   buscarPorBarcode: async (codigo) => {
     if (!codigo || codigo.trim() === '') return null;
     const codigoLimpio = codigo.trim();
 
-    // Si estamos offline, ir directo al cache
     if (!isOnline()) {
       const cached = await offlineDB.getVariantePorBarcode(codigoLimpio);
       return cached || null;
@@ -242,7 +239,6 @@ export const inventarioApi = {
       );
 
       if (response.status === 404) {
-        // El código no existe en el backend → dato autoritativo, no buscar offline
         return null;
       }
 
@@ -251,18 +247,16 @@ export const inventarioApi = {
       }
 
       const data = await response.json();
-      // Guardar en cache para uso offline futuro
       await offlineDB.saveVarianteBarcode(data);
       return data;
     } catch (error) {
-      // Error de red → intentar cache local
       console.warn('[API] Error de red buscando barcode, probando cache:', error.message);
       const cached = await offlineDB.getVariantePorBarcode(codigoLimpio);
       return cached || null;
     }
   },
 
-  // ============ PROVEEDORES ============
+  // Proveedores
   getProveedores: async (soloActivos = true) => {
     const response = await fetch(
       `${API_URL}/proveedores?solo_activos=${soloActivos}`,
@@ -288,7 +282,8 @@ export const inventarioApi = {
     });
     return handleResponse(response);
   },
-// ============ LOTES ============
+
+  // Lotes
   crearLote: async (data) => {
     const response = await fetch(`${API_URL}/lotes`, {
       method: 'POST',
@@ -297,6 +292,7 @@ export const inventarioApi = {
     });
     return handleResponse(response);
   },
+  
   getLotes: async (params = {}) => {
     const queryParams = new URLSearchParams(params);
     const response = await fetch(`${API_URL}/lotes?${queryParams}`, {
@@ -304,13 +300,15 @@ export const inventarioApi = {
     });
     return handleResponse(response);
   },
+  
   getLotesProximosVencer: async (dias = 180) => {
     const response = await fetch(`${API_URL}/lotes/proximos-vencer?dias=${dias}`, {
       headers: getHeaders(),
     });
     return handleResponse(response);
   },
-  // ============ MOVIMIENTOS ============
+
+  // Movimientos
   crearMovimiento: async (data) => {
     const response = await fetch(`${API_URL}/movimientos`, {
       method: 'POST',
@@ -327,13 +325,11 @@ export const inventarioApi = {
     });
     return handleResponse(response);
   },
-};
+}; // <--- CIERRE CORRECTO DEL OBJETO inventarioApi
 
 // ============ VENTAS API (con soporte offline) ============
 export const ventasApi = {
-  // Crear venta (con fallback offline)
   createVenta: async (data) => {
-    // Calcular total desde detalles
     const detalles = data.detalles || [];
     const total = detalles.reduce((sum, item) => sum + (item.cantidad * item.precio_unitario), 0);
 
@@ -357,7 +353,6 @@ export const ventasApi = {
       });
       return handleResponse(response);
     } catch (error) {
-      // Si falla, guardar offline
       console.log('[API] Error de red, guardando offline:', error.message);
       const ventaOffline = await offlineDB.saveVentaPendiente(data);
       return {
@@ -379,11 +374,11 @@ export const ventasApi = {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({
-      metodo_pago: metodoPago,
-      monto_recibido: montoRecibido
+        metodo_pago: metodoPago,
+        monto_recibido: montoRecibido
       })
     });
-      return handleResponse(response);
+    return handleResponse(response);
   },
 
   getVentas: async (params = {}) => {
@@ -410,7 +405,6 @@ export const ventasApi = {
     return handleResponse(response);
   },
 
-  // Clientes
   getClientes: async () => {
     const response = await fetch(`${API_URL}/clientes`, {
       headers: getHeaders(),
@@ -426,7 +420,6 @@ export const ventasApi = {
     return handleResponse(response);
   },
 
-  // Reportes
   getResumenDia: async (fecha) => {
     const params = fecha ? `?fecha=${fecha}` : '';
     const response = await fetch(`${API_URL}/reportes/ventas-dia${params}`, {
@@ -459,7 +452,6 @@ export const ventasApi = {
     return handleResponse(response);
   },
 
-  // Obtener ventas pendientes offline
   getVentasPendientes: async () => {
     return offlineDB.getVentasPendientes();
   },

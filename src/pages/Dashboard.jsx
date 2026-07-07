@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { ventasApi, inventarioApi } from '../services/api'
+import AlertaStockWidget from '../components/AlertaStockWidget'
 import {
   TrendingUp,
   Package,
@@ -87,6 +88,9 @@ export default function Dashboard() {
         </Link>
       </div>
 
+      {/* Alerta Prioritaria */}
+      <AlertaStockWidget />
+
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat) => (
@@ -140,7 +144,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Alertas de stock */}
+        {/* Alertas de stock (Listado detallado) */}
         <div className="card">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Alertas de stock</h2>

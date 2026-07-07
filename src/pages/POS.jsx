@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { inventarioApi, ventasApi } from '../services/api'
 import TicketPreview from '../components/TicketPreview'
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner'
@@ -8,6 +9,7 @@ import {
 } from 'lucide-react'
 
 export default function POS() {
+  const queryClient = useQueryClient()
   const [productos, setProductos] = useState([])
   const [categorias, setCategorias] = useState([])
   const [almacenes, setAlmacenes] = useState([])
@@ -197,6 +199,11 @@ export default function POS() {
   // Listener global de escáner HID (estrategia C)
   useBarcodeScanner(procesarBarcode, !modalPago && !ventaCompletada)
 
+  const cambiarAlmacen = (id) => {
+    setAlmacenActual(id)
+    localStorage.setItem('apolodigital_almacen_id', id)
+  }
+
   const cambiarCantidad = (varianteId, delta) => {
     setCarrito(carrito.map(item => {
       if (item.variante_id === varianteId) {
@@ -244,6 +251,18 @@ export default function POS() {
       // Si no es offline y está pendiente, completar la venta
       if (!ventaCreada.offline && ventaCreada.estado === 'PENDIENTE') {
         await ventasApi.completarVenta(ventaCreada.id, metodoPago, montoRecibido)
+      }
+
+      // Invalidar reportes afectados por esta venta — solo si se procesó online.
+      // Si fue offline (ventaCreada.offline === true), el backend todavía no
+      // cambió nada: invalidar acá solo traería de vuelta el mismo dato viejo.
+      // El caso offline sincronizado en segundo plano se invalida desde
+      // syncService.js (ver _invalidarReportes en syncAll()).
+      if (!ventaCreada.offline) {
+        queryClient.invalidateQueries({ queryKey: ['stockActual'] })
+        queryClient.invalidateQueries({ queryKey: ['alertasStock'] })
+        queryClient.invalidateQueries({ queryKey: ['utilidadPeriodo'] })
+        queryClient.invalidateQueries({ queryKey: ['utilidadProductos'] })
       }
 
       // Preparar datos para el ticket
@@ -329,6 +348,17 @@ export default function POS() {
 
         {/* Búsqueda y filtros */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
+          {almacenes.length > 1 && (
+            <select
+              value={almacenActual || ''}
+              onChange={(e) => cambiarAlmacen(e.target.value)}
+              className="input sm:w-48"
+            >
+              {almacenes.map((a) => (
+                <option key={a.id} value={a.id}>{a.nombre}</option>
+              ))}
+            </select>
+          )}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input

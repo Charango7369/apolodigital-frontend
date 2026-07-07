@@ -18,7 +18,8 @@ import {
   Truck,
   Building2,
   Warehouse,
-  AlertTriangle
+  AlertTriangle,
+  TrendingUp
 } from 'lucide-react'
 
 const navigation = [
@@ -32,6 +33,8 @@ const navigation = [
   { name: 'Proveedores', href: '/proveedores', icon: Truck },
   { name: 'Ventas', href: '/ventas', icon: Receipt },
   { name: 'Reportes', href: '/reportes', icon: BarChart3 },
+  { name: 'Stock Actual', href: '/reportes/stock-actual', icon: Package },
+  { name: 'Financiero', href: '/financiero', icon: TrendingUp },
 ]
 
 // Items que solo aparecen para superadmin (gestión de plataforma)
@@ -66,13 +69,19 @@ export default function Layout() {
       <aside className={`
         fixed top-0 left-0 z-50 h-full w-64 bg-white border-r border-gray-200
         transform transition-transform duration-200 ease-in-out
+        flex flex-col
         lg:translate-x-0
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         {/* Logo */}
-        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200">
+        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 shrink-0">
           <div className="flex items-center gap-2">
-            <Store className="w-8 h-8 text-primary-600" />
+            {/* Reemplazo del componente <Store /> por la etiqueta <img> */}
+            <img 
+              src="/icons/Logo_32_Apolo_Digital.png" 
+              alt="Logo Apolo Digital" 
+              className="w-8 h-8 object-contain" 
+            />
             <span className="text-xl font-bold text-gray-900">ApoloDigital</span>
           </div>
           <button
@@ -84,7 +93,7 @@ export default function Layout() {
         </div>
 
         {/* Navigation */}
-        <nav className="p-4 space-y-1">
+        <nav className="p-4 space-y-1 flex-grow overflow-y-auto">
           {navItems.map((item) => (
             <NavLink
               key={item.name}
@@ -104,15 +113,19 @@ export default function Layout() {
           ))}
         </nav>
 
-        {/* User info */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200">
+        {/* User info blindado contra colapsos de Flexbox */}
+        <div className="mt-auto shrink-0 w-full p-4 border-t border-gray-200 bg-white">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center shrink-0">
               <User className="w-5 h-5 text-primary-600" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{user?.nombre}</p>
-              <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {user?.nombre || 'Cargando...'}
+              </p>
+              <p className="text-xs text-gray-500 truncate">
+                {user?.email || ''}
+              </p>
             </div>
           </div>
           <button
