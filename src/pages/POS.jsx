@@ -118,7 +118,7 @@ export default function POS() {
     if (existe) {
       setCarrito(carrito.map(item =>
         item.variante_id === varianteId
-          ? { ...item, cantidad: item.cantidad + 1 }
+          ? { ...item, cantidad: (parseFloat(item.cantidad) || 0) + 1 }
           : item
       ))
     } else {
@@ -153,7 +153,7 @@ export default function POS() {
       const existe = prev.find((i) => i.variante_id === varianteId)
       if (existe) {
         return prev.map((i) =>
-          i.variante_id === varianteId ? { ...i, cantidad: i.cantidad + 1 } : i
+          i.variante_id === varianteId ? { ...i, cantidad: (parseFloat(i.cantidad) || 0) + 1 } : i
         )
       }
       return [
@@ -207,11 +207,41 @@ export default function POS() {
   const cambiarCantidad = (varianteId, delta) => {
     setCarrito(carrito.map(item => {
       if (item.variante_id === varianteId) {
-        const nuevaCantidad = item.cantidad + delta
-        return nuevaCantidad > 0 ? { ...item, cantidad: nuevaCantidad } : item
+        const actual = parseFloat(item.cantidad) || 0
+        const nuevaCantidad = Math.max(1, Math.round((actual + delta) * 1000) / 1000)
+        return { ...item, cantidad: nuevaCantidad }
       }
       return item
-    }).filter(item => item.cantidad > 0))
+    }))
+  }
+
+  const actualizarCantidadDirecta = (varianteId, valor) => {
+    // Permitir campo vacío temporalmente mientras el usuario borra/escribe
+    if (valor === '') {
+      setCarrito(carrito.map(item =>
+        item.variante_id === varianteId ? { ...item, cantidad: '' } : item
+      ))
+      return
+    }
+
+    // Aceptar cualquier número positivo (entero o decimal)
+    const num = parseFloat(valor)
+    if (!isNaN(num) && num >= 0) {
+      setCarrito(carrito.map(item =>
+        item.variante_id === varianteId ? { ...item, cantidad: valor } : item
+      ))
+    }
+  }
+
+  const validarCantidad = (varianteId) => {
+    setCarrito(carrito.map(item => {
+      if (item.variante_id === varianteId) {
+        const num = parseFloat(item.cantidad)
+        const valorValido = !isNaN(num) && num > 0 ? num : 1
+        return { ...item, cantidad: valorValido }
+      }
+      return item
+    }))
   }
 
   const eliminarDelCarrito = (varianteId) => {
@@ -224,18 +254,21 @@ export default function POS() {
     }
   }
 
-  const subtotal = carrito.reduce((sum, item) => sum + (item.precio * item.cantidad), 0)
+  const subtotal = carrito.reduce((sum, item) => sum + (item.precio * (parseFloat(item.cantidad) || 0)), 0)
   const total = subtotal
 
   const procesarVenta = async (metodoPago, clienteNombre = '', clienteNit = '', montoRecibido = null) => {
     setProcesando(true)
     try {
       // Formato que espera el backend
-      const detalles = carrito.map(item => ({
-        variante_id: item.variante_id,
-        cantidad: item.cantidad,
-        precio_unitario: item.precio
-      }))
+      const detalles = carrito.map(item => {
+        const cant = parseFloat(item.cantidad)
+        return {
+          variante_id: item.variante_id,
+          cantidad: !isNaN(cant) && cant > 0 ? cant : 1,
+          precio_unitario: item.precio
+        }
+      })
 
       // Crear la venta
       const ventaCreada = await ventasApi.createVenta({
@@ -275,12 +308,16 @@ export default function POS() {
         cliente_nombre: clienteNombre || 'Mostrador',
         cliente_nit: clienteNit,
         cambio: montoRecibido ? montoRecibido - total : 0,
-        items: carrito.map(item => ({
-          producto_nombre: item.nombre,
-          cantidad: item.cantidad,
-          precio_unitario: item.precio,
-          subtotal: item.cantidad * item.precio
-        })),
+        items: carrito.map(item => {
+          const cant = parseFloat(item.cantidad)
+          const cantidadValida = !isNaN(cant) && cant > 0 ? cant : 1
+          return {
+            producto_nombre: item.nombre,
+            cantidad: cantidadValida,
+            precio_unitario: item.precio,
+            subtotal: cantidadValida * item.precio
+          }
+        }),
         created_at: new Date().toISOString(),
         offline: ventaCreada.offline || false,
       })
@@ -422,35 +459,67 @@ export default function POS() {
           {carrito.length === 0 ? (
             <p className="text-gray-500 text-center py-8">Carrito vacío</p>
           ) : (
-            carrito.map((item) => (
-              <div key={item.variante_id} className="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 text-sm truncate">{item.nombre}</p>
-                  <p className="text-sm text-gray-500">Bs. {item.precio.toFixed(2)}</p>
+            carrito.map((item) => {
+              const cantidadNum = parseFloat(item.cantidad) || 0
+              return (
+                <div key={item.variante_id} className="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-900 text-sm truncate" title={item.nombre}>
+                      {item.nombre}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Bs. {item.precio.toFixed(2)} c/u
+                      {cantidadNum > 1 && (
+                        <span className="block font-medium text-primary-700">
+                          Subtotal: Bs. {(cantidadNum * item.precio).toFixed(2)}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => cambiarCantidad(item.variante_id, -1)}
+                      className="p-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 active:scale-95 transition-all"
+                      title="Disminuir 1"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <input
+                      type="number"
+                      min="0.001"
+                      step="any"
+                      value={item.cantidad}
+                      onChange={(e) => actualizarCantidadDirecta(item.variante_id, e.target.value)}
+                      onBlur={() => validarCantidad(item.variante_id)}
+                      onFocus={(e) => e.target.select()}
+                      onWheel={(e) => e.currentTarget.blur()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') e.currentTarget.blur()
+                      }}
+                      className="w-16 sm:w-20 text-center font-semibold text-gray-800 bg-white border border-gray-300 rounded-lg py-1 px-1 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500 focus:outline-none input-no-spinner shadow-inner"
+                      title="Haz clic para escribir la cantidad directamente"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => cambiarCantidad(item.variante_id, 1)}
+                      className="p-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 active:scale-95 transition-all"
+                      title="Aumentar 1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => eliminarDelCarrito(item.variante_id)}
+                      className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 active:scale-95 transition-all ml-0.5"
+                      title="Eliminar producto"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => cambiarCantidad(item.variante_id, -1)}
-                    className="p-1 rounded-lg bg-gray-200 hover:bg-gray-300"
-                  >
-                    <Minus className="w-4 h-4" />
-                  </button>
-                  <span className="w-8 text-center font-medium">{item.cantidad}</span>
-                  <button
-                    onClick={() => cambiarCantidad(item.variante_id, 1)}
-                    className="p-1 rounded-lg bg-gray-200 hover:bg-gray-300"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => eliminarDelCarrito(item.variante_id)}
-                    className="p-1 rounded-lg text-red-500 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
 

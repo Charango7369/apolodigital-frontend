@@ -1,5 +1,7 @@
 node_modules/
 .env
+.env.*
+!.env.example
 
 # Archivos de investigación/debug de esta sesión
 extraer_movimientos.sh
