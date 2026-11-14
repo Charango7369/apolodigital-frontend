@@ -122,6 +122,31 @@ export default function TicketPreview({ venta, onClose, configNegocio }) {
                 <span>Método:</span>
                 <span>{formatMetodoPago(venta.metodo_pago)}</span>
               </div>
+              {venta.estado_financiero && (
+                <div className="flex justify-between text-xs pt-1">
+                  <span>Estado Fin.:</span>
+                  <span className={`font-semibold ${
+                    venta.estado_financiero === 'PAID' ? 'text-green-600' :
+                    venta.estado_financiero === 'PARTIAL' ? 'text-amber-600' :
+                    venta.estado_financiero === 'CREDIT' ? 'text-blue-600' :
+                    venta.estado_financiero === 'PAID_PRESUNTIVO' ? 'text-purple-600' :
+                    'text-gray-600'
+                  }`}>
+                    {formatEstadoFinanciero(venta.estado_financiero)}
+                  </span>
+                </div>
+              )}
+              {venta.pagos && venta.pagos.length > 0 && (
+                <div className="pt-2 border-t border-dotted border-gray-200 mt-1">
+                  <span className="text-[10px] text-gray-500 block uppercase font-medium">Desglose de Pagos:</span>
+                  {venta.pagos.map((p, idx) => (
+                    <div key={idx} className="flex justify-between text-[11px] text-gray-600 pl-1">
+                      <span>• {formatMetodoPago(p.metodo_pago || p.metodo)} ({p.estado || 'CONFIRMED'}):</span>
+                      <span>Bs. {Number(p.monto).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {venta.cambio > 0 && (
                 <div className="flex justify-between text-xs text-green-600 pt-1">
                   <span>Cambio:</span>
@@ -170,4 +195,15 @@ function formatMetodoPago(metodo) {
     'MIXTO': 'Mixto',
   };
   return metodos[metodo] || metodo;
+}
+
+function formatEstadoFinanciero(estado) {
+  const estados = {
+    'PAID': 'COBRADO',
+    'PAID_PRESUNTIVO': 'PRESUNTIVO (HISTÓRICO)',
+    'PARTIAL': 'PAGO PARCIAL',
+    'CREDIT': 'A CRÉDITO',
+    'NOT_APPLICABLE': 'NO APLICA',
+  };
+  return estados[estado] || estado || 'COBRADO';
 }

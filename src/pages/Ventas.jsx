@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { ventasApi } from '../services/api'
-import { Receipt, Eye, XCircle, Calendar } from 'lucide-react'
+import { ventasApi, pagosApi } from '../services/api'
+import { Receipt, Eye, XCircle, Calendar, CheckCircle2, AlertTriangle, Clock, Banknote, QrCode } from 'lucide-react'
 
 export default function Ventas() {
   const [ventas, setVentas] = useState([])
@@ -31,15 +31,40 @@ export default function Ventas() {
   }
 
   const cancelarVenta = async (id) => {
-    const motivo = prompt('Motivo de cancelación:')
+    const motivo = prompt('Motivo de cancelación de la venta:')
     if (motivo === null) return
+    if (!motivo.trim()) {
+      alert('Debe especificar un motivo para la anulación transaccional.')
+      return
+    }
+
+    const devolverEfectivo = confirm(
+      '¿Desea registrar la devolución física de efectivo de la gaveta de caja?\n\n' +
+      '[Aceptar] = Sí, reintegrar dinero físico al cliente\n' +
+      '[Cancelar] = No, solo reversión contable/cartera'
+    )
     
     try {
-      await ventasApi.cancelarVenta(id, motivo)
+      await ventasApi.cancelarVenta(id, { motivo: motivo.trim(), devolver_efectivo: devolverEfectivo })
+      alert('Venta cancelada exitosamente con reingreso de existencias e invalidación de cartera.')
       loadVentas()
       setVentaDetalle(null)
     } catch (error) {
-      alert(error.message)
+      alert(error.message || 'Error al cancelar la venta')
+    }
+  }
+
+  const confirmarPagoVenta = async (pagoId, ventaId) => {
+    if (!confirm('¿Confirma que este cobro (QR / Transferencia) fue acreditado y verificado en cuenta?')) {
+      return
+    }
+    try {
+      await pagosApi.confirmarPago(pagoId, { notas: 'Verificación en ventanilla' })
+      alert('Pago verificado y confirmado exitosamente.')
+      verDetalle(ventaId)
+      loadVentas()
+    } catch (error) {
+      alert(error.message || 'Error al confirmar el cobro')
     }
   }
 
@@ -129,15 +154,28 @@ export default function Ventas() {
           {ventas.map((venta) => (
             <div key={venta.id} className="card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-bold text-gray-900">#{venta.numero}</span>
-                  <span className={`badge ${
+                  <span className={`badge text-xs ${
                     venta.estado === 'COMPLETADA' ? 'bg-green-100 text-green-700' :
                     venta.estado === 'CANCELADA' ? 'bg-red-100 text-red-700' :
                     'bg-yellow-100 text-yellow-700'
                   }`}>
                     {venta.estado}
                   </span>
+                  {venta.estado !== 'CANCELADA' && (
+                    <span className={`badge text-xs ${
+                      venta.estado_financiero === 'PAID' ? 'bg-emerald-100 text-emerald-800' :
+                      venta.estado_financiero === 'PARTIAL' ? 'bg-amber-100 text-amber-800' :
+                      venta.estado_financiero === 'PENDING' ? 'bg-purple-100 text-purple-800' :
+                      'bg-gray-100 text-gray-700'
+                    }`}>
+                      {venta.estado_financiero === 'PAID' ? 'Cobrado' :
+                       venta.estado_financiero === 'PARTIAL' ? 'Parcial' :
+                       venta.estado_financiero === 'PENDING' ? 'Por Cobrar / Pend.' :
+                       'Sin aplicar'}
+                    </span>
+                  )}
                 </div>
                 <p className="text-sm text-gray-500 mt-1">
                   {venta.cliente_nombre || 'Cliente mostrador'} • {formatFecha(venta.created_at)}
@@ -200,6 +238,58 @@ export default function Ventas() {
                 <span className="text-gray-500">Método de pago</span>
                 <span>{ventaDetalle.metodo_pago}</span>
               </div>
+
+              {/* Desglose Financiero de Pagos */}
+              {ventaDetalle.pagos && ventaDetalle.pagos.length > 0 && (
+                <>
+                  <hr />
+                  <div className="space-y-2">
+                    <p className="font-medium text-gray-900 text-xs uppercase tracking-wide">Cobros Registrados</p>
+                    <div className="space-y-1.5">
+                      {ventaDetalle.pagos.map((p) => (
+                        <div key={p.id} className="flex items-center justify-between text-xs bg-gray-50 p-2 rounded border border-gray-200">
+                          <div>
+                            <span className="font-semibold text-gray-800">{p.metodo_pago}</span>
+                            <span className="text-gray-500 ml-2">Bs. {Number(p.monto).toFixed(2)}</span>
+                            {p.referencia && <span className="text-gray-400 ml-1">({p.referencia})</span>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`badge text-[10px] ${
+                              p.estado === 'CONFIRMED' ? 'bg-emerald-100 text-emerald-800' :
+                              p.estado === 'PENDING' ? 'bg-amber-100 text-amber-800' :
+                              'bg-red-100 text-red-800'
+                            }`}>
+                              {p.estado === 'CONFIRMED' ? 'Confirmado' : p.estado === 'PENDING' ? 'En espera' : p.estado}
+                            </span>
+                            {p.estado === 'PENDING' && (
+                              <button
+                                type="button"
+                                onClick={() => confirmarPagoVenta(p.id, ventaDetalle.id)}
+                                className="btn btn-xs bg-emerald-600 text-white hover:bg-emerald-700 px-2 py-0.5 rounded text-[11px]"
+                              >
+                                Confirmar
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Cuenta por cobrar si existe */}
+              {ventaDetalle.cuenta_por_cobrar && (
+                <div className="bg-amber-50 border border-amber-200 p-2.5 rounded text-xs text-amber-900 flex justify-between items-center">
+                  <div>
+                    <p className="font-semibold">Cartera / Crédito pendiente</p>
+                    <p className="text-[11px] text-amber-700">Vence: {ventaDetalle.cuenta_por_cobrar.fecha_vencimiento || 'Sin fecha'}</p>
+                  </div>
+                  <span className="font-extrabold text-amber-800 text-sm">
+                    Bs. {Number(ventaDetalle.cuenta_por_cobrar.saldo_pendiente).toFixed(2)}
+                  </span>
+                </div>
+              )}
 
               <hr />
 

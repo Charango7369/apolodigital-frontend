@@ -5,7 +5,8 @@ import TicketPreview from '../components/TicketPreview'
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner'
 import {
   Search, Plus, Minus, Trash2, ShoppingCart,
-  CreditCard, Banknote, QrCode, Send, X, ScanLine, AlertCircle
+  CreditCard, Banknote, QrCode, Send, X, ScanLine, AlertCircle,
+  Clock, Layers, CheckCircle2, UserCheck
 } from 'lucide-react'
 
 export default function POS() {
@@ -257,10 +258,18 @@ export default function POS() {
   const subtotal = carrito.reduce((sum, item) => sum + (item.precio * (parseFloat(item.cantidad) || 0)), 0)
   const total = subtotal
 
-  const procesarVenta = async (metodoPago, clienteNombre = '', clienteNit = '', montoRecibido = null) => {
+  const procesarVenta = async ({
+    metodoPago,
+    clienteId = null,
+    clienteNombre = '',
+    clienteNit = '',
+    montoRecibido = null,
+    pagos = [],
+    esCredito = false,
+    fechaVencimiento = null,
+  }) => {
     setProcesando(true)
     try {
-      // Formato que espera el backend
       const detalles = carrito.map(item => {
         const cant = parseFloat(item.cantidad)
         return {
@@ -270,44 +279,67 @@ export default function POS() {
         }
       })
 
-      // Crear la venta
-      const ventaCreada = await ventasApi.createVenta({
+      const idempKey = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `pos-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+
+      // Preparar desglose de pagos financieros
+      let pagosPayload = []
+      if (metodoPago === 'MIXTO' || metodoPago === 'CREDITO') {
+        pagosPayload = pagos
+      } else {
+        pagosPayload = [{
+          monto: total,
+          metodo_pago: metodoPago,
+          referencia: null
+        }]
+      }
+
+      const payload = {
         almacen_id: almacenActual,
-        detalles: detalles,
-        metodo_pago: metodoPago,
+        cliente_id: clienteId || null,
         cliente_nombre: clienteNombre || null,
         cliente_nit: clienteNit || null,
+        detalles: detalles,
+        descuento: 0,
+        metodo_pago: metodoPago,
+        monto_recibido: metodoPago === 'EFECTIVO' ? (montoRecibido || null) : null,
         notas: '',
-        monto_recibido: montoRecibido || null
-      })
+        completar: true,
+        pagos: pagosPayload,
+        es_credito: esCredito,
+        fecha_vencimiento: fechaVencimiento || null,
+        idempotency_key: idempKey,
+      }
 
-      // Si no es offline y está pendiente, completar la venta
+      const ventaCreada = await ventasApi.createVenta(payload, idempKey)
+
       if (!ventaCreada.offline && ventaCreada.estado === 'PENDIENTE') {
         await ventasApi.completarVenta(ventaCreada.id, metodoPago, montoRecibido)
       }
 
-      // Invalidar reportes afectados por esta venta — solo si se procesó online.
-      // Si fue offline (ventaCreada.offline === true), el backend todavía no
-      // cambió nada: invalidar acá solo traería de vuelta el mismo dato viejo.
-      // El caso offline sincronizado en segundo plano se invalida desde
-      // syncService.js (ver _invalidarReportes en syncAll()).
       if (!ventaCreada.offline) {
         queryClient.invalidateQueries({ queryKey: ['stockActual'] })
         queryClient.invalidateQueries({ queryKey: ['alertasStock'] })
         queryClient.invalidateQueries({ queryKey: ['utilidadPeriodo'] })
         queryClient.invalidateQueries({ queryKey: ['utilidadProductos'] })
+        queryClient.invalidateQueries({ queryKey: ['cartera'] })
       }
 
-      // Preparar datos para el ticket
+      // Preparar datos para el ticket (autoridad del backend)
       setVentaCompletada({
+        id: ventaCreada.id,
         numero: ventaCreada.numero || ventaCreada.temp_id,
-        total: total,
-        subtotal: subtotal,
-        descuento: 0,
-        metodo_pago: metodoPago,
+        total: Number(ventaCreada.total || total),
+        subtotal: Number(ventaCreada.subtotal || subtotal),
+        descuento: Number(ventaCreada.descuento || 0),
+        metodo_pago: ventaCreada.metodo_pago || metodoPago,
+        estado: ventaCreada.estado || 'COMPLETADA',
+        estado_financiero: ventaCreada.estado_financiero || (esCredito ? 'CREDIT' : 'PAID'),
         cliente_nombre: clienteNombre || 'Mostrador',
         cliente_nit: clienteNit,
-        cambio: montoRecibido ? montoRecibido - total : 0,
+        cambio: (metodoPago === 'EFECTIVO' && montoRecibido) ? montoRecibido - total : 0,
+        pagos: ventaCreada.pagos || pagosPayload,
         items: carrito.map(item => {
           const cant = parseFloat(item.cantidad)
           const cantidadValida = !isNaN(cant) && cant > 0 ? cant : 1
@@ -318,7 +350,7 @@ export default function POS() {
             subtotal: cantidadValida * item.precio
           }
         }),
-        created_at: new Date().toISOString(),
+        created_at: ventaCreada.created_at || new Date().toISOString(),
         offline: ventaCreada.offline || false,
       })
 
@@ -563,96 +595,215 @@ export default function POS() {
 function ModalPago({ total, procesando, onClose, onPagar }) {
   const [metodo, setMetodo] = useState('EFECTIVO')
   const [montoRecibido, setMontoRecibido] = useState('')
+  const [clientes, setClientes] = useState([])
+  const [clienteSeleccionadoId, setClienteSeleccionadoId] = useState('')
   const [clienteNombre, setClienteNombre] = useState('')
   const [clienteNit, setClienteNit] = useState('')
 
-  const cambio = metodo === 'EFECTIVO' && montoRecibido 
-    ? Number(montoRecibido) - total 
-    : 0
+  // Para Crédito
+  const [fechaVencimiento, setFechaVencimiento] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 30)
+    return d.toISOString().split('T')[0]
+  })
+  const [anticipoCredito, setAnticipoCredito] = useState('')
+
+  // Para Pago Mixto
+  const [montoEfectivo, setMontoEfectivo] = useState('')
+  const [montoQr, setMontoQr] = useState('')
+  const [montoTarjeta, setMontoTarjeta] = useState('')
+  const [montoTransfer, setMontoTransfer] = useState('')
+
+  useEffect(() => {
+    ventasApi.getClientes({ solo_activos: true }).then((data) => {
+      setClientes(data || [])
+    }).catch(() => {})
+  }, [])
+
+  const handleSelectCliente = (id) => {
+    setClienteSeleccionadoId(id)
+    const c = clientes.find((x) => x.id === id)
+    if (c) {
+      setClienteNombre(c.nombre)
+      setClienteNit(c.nit || '')
+    } else {
+      setClienteNombre('')
+      setClienteNit('')
+    }
+  }
 
   const metodos = [
     { id: 'EFECTIVO', label: 'Efectivo', icon: Banknote },
     { id: 'QR', label: 'QR', icon: QrCode },
     { id: 'TARJETA', label: 'Tarjeta', icon: CreditCard },
     { id: 'TRANSFERENCIA', label: 'Transfer', icon: Send },
+    { id: 'CREDITO', label: 'Crédito', icon: Clock },
+    { id: 'MIXTO', label: 'Mixto', icon: Layers },
   ]
 
+  // Cálculos de Mixto
+  const sumMixto = (Number(montoEfectivo) || 0) + (Number(montoQr) || 0) + (Number(montoTarjeta) || 0) + (Number(montoTransfer) || 0)
+  const diferenciaMixto = total - sumMixto
+
+  const cambioEfectivo = metodo === 'EFECTIVO' && montoRecibido
+    ? Number(montoRecibido) - total
+    : 0
+
   const handleConfirmar = () => {
-    onPagar(
-      metodo, 
-      clienteNombre, 
-      clienteNit, 
-      montoRecibido ? Number(montoRecibido) : null
-    )
+    if (metodo === 'CREDITO') {
+      if (!clienteSeleccionadoId) {
+        alert('Para ventas a crédito debe seleccionar un cliente registrado en el sistema.')
+        return
+      }
+      const pagos = []
+      const ant = Number(anticipoCredito) || 0
+      if (ant > 0) {
+        pagos.push({ monto: ant, metodo_pago: 'EFECTIVO', referencia: 'Anticipo' })
+      }
+      onPagar({
+        metodoPago: 'CREDITO',
+        clienteId: clienteSeleccionadoId,
+        clienteNombre,
+        clienteNit,
+        montoRecibido: ant > 0 ? ant : null,
+        pagos,
+        esCredito: true,
+        fechaVencimiento,
+      })
+      return
+    }
+
+    if (metodo === 'MIXTO') {
+      if (Math.abs(diferenciaMixto) > 0.01) {
+        alert(`El total del desglose (Bs. ${sumMixto.toFixed(2)}) debe coincidir exactamente con el total a cobrar (Bs. ${total.toFixed(2)}).`)
+        return
+      }
+      const pagos = []
+      if (Number(montoEfectivo) > 0) pagos.push({ monto: Number(montoEfectivo), metodo_pago: 'EFECTIVO' })
+      if (Number(montoQr) > 0) pagos.push({ monto: Number(montoQr), metodo_pago: 'QR' })
+      if (Number(montoTarjeta) > 0) pagos.push({ monto: Number(montoTarjeta), metodo_pago: 'TARJETA' })
+      if (Number(montoTransfer) > 0) pagos.push({ monto: Number(montoTransfer), metodo_pago: 'TRANSFERENCIA' })
+
+      onPagar({
+        metodoPago: 'MIXTO',
+        clienteId: clienteSeleccionadoId || null,
+        clienteNombre,
+        clienteNit,
+        montoRecibido: Number(montoEfectivo) || null,
+        pagos,
+        esCredito: false,
+      })
+      return
+    }
+
+    onPagar({
+      metodoPago: metodo,
+      clienteId: clienteSeleccionadoId || null,
+      clienteNombre,
+      clienteNit,
+      montoRecibido: montoRecibido ? Number(montoRecibido) : null,
+      pagos: [{ monto: total, metodo_pago: metodo }],
+      esCredito: false,
+    })
+  }
+
+  const esBotonDeshabilitado = () => {
+    if (procesando) return true
+    if (metodo === 'EFECTIVO' && Number(montoRecibido || 0) < total) return true
+    if (metodo === 'CREDITO' && !clienteSeleccionadoId) return true
+    if (metodo === 'MIXTO' && Math.abs(diferenciaMixto) > 0.01) return true
+    return false
   }
 
   return (
     <div className="fixed inset-0 bg-gray-900/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">Método de pago</h2>
+          <h2 className="text-lg font-semibold">Método de cobro</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="p-4 space-y-4">
-          <div className="text-center">
-            <p className="text-gray-500">Total a cobrar</p>
-            <p className="text-3xl font-bold text-primary-600">Bs. {total.toFixed(2)}</p>
+          <div className="text-center bg-gray-50 p-3 rounded-lg border border-gray-100">
+            <p className="text-xs uppercase tracking-wide font-semibold text-gray-500">Total a cobrar</p>
+            <p className="text-3xl font-extrabold text-primary-600">Bs. {total.toFixed(2)}</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-2">
             {metodos.map((m) => (
               <button
                 key={m.id}
                 onClick={() => setMetodo(m.id)}
-                className={`p-4 rounded-lg border-2 transition-colors flex flex-col items-center gap-2 ${
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center gap-1.5 ${
                   metodo === m.id
-                    ? 'border-primary-500 bg-primary-50'
-                    : 'border-gray-200 hover:border-gray-300'
+                    ? 'border-primary-500 bg-primary-50 text-primary-700 shadow-sm'
+                    : 'border-gray-200 hover:border-gray-300 text-gray-600'
                 }`}
               >
-                <m.icon className={`w-6 h-6 ${metodo === m.id ? 'text-primary-600' : 'text-gray-400'}`} />
-                <span className={`text-sm font-medium ${metodo === m.id ? 'text-primary-700' : 'text-gray-600'}`}>
-                  {m.label}
-                </span>
+                <m.icon className={`w-5 h-5 ${metodo === m.id ? 'text-primary-600' : 'text-gray-400'}`} />
+                <span className="text-xs font-semibold">{m.label}</span>
               </button>
             ))}
           </div>
 
-          {/* Datos del cliente (opcional) */}
-          <div className="space-y-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Nombre del cliente (opcional)
+          {/* Selector de Cliente */}
+          <div className="space-y-2 border-t pt-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-gray-700 uppercase flex items-center gap-1">
+                <UserCheck className="w-4 h-4 text-primary-600" />
+                Cliente {metodo === 'CREDITO' ? '(Obligatorio)' : '(Opcional)'}
               </label>
-              <input
-                type="text"
-                value={clienteNombre}
-                onChange={(e) => setClienteNombre(e.target.value)}
-                className="input"
-                placeholder="Cliente mostrador"
-              />
+              {clienteSeleccionadoId && (
+                <button
+                  type="button"
+                  onClick={() => handleSelectCliente('')}
+                  className="text-xs text-primary-600 hover:underline"
+                >
+                  Cambiar a mostrador
+                </button>
+              )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                NIT/CI (opcional)
-              </label>
-              <input
-                type="text"
-                value={clienteNit}
-                onChange={(e) => setClienteNit(e.target.value)}
-                className="input"
-                placeholder="Para factura"
-              />
-            </div>
+
+            <select
+              value={clienteSeleccionadoId}
+              onChange={(e) => handleSelectCliente(e.target.value)}
+              className={`input text-sm ${metodo === 'CREDITO' && !clienteSeleccionadoId ? 'border-amber-400 bg-amber-50' : ''}`}
+            >
+              <option value="">-- Cliente Mostrador / Sin registrar --</option>
+              {clientes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre} {c.telefono ? `(${c.telefono})` : ''} {c.nit ? `[NIT: ${c.nit}]` : ''}
+                </option>
+              ))}
+            </select>
+
+            {!clienteSeleccionadoId && (
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <input
+                  type="text"
+                  value={clienteNombre}
+                  onChange={(e) => setClienteNombre(e.target.value)}
+                  className="input text-xs"
+                  placeholder="Nombre mostrador..."
+                />
+                <input
+                  type="text"
+                  value={clienteNit}
+                  onChange={(e) => setClienteNit(e.target.value)}
+                  className="input text-xs"
+                  placeholder="NIT / CI factura..."
+                />
+              </div>
+            )}
           </div>
 
+          {/* VENTA EFECTIVO */}
           {metodo === 'EFECTIVO' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Monto recibido
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-2">
+              <label className="block text-xs font-semibold text-emerald-800 uppercase">
+                Monto recibido en efectivo
               </label>
               <input
                 type="number"
@@ -660,24 +811,138 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
                 min={total}
                 value={montoRecibido}
                 onChange={(e) => setMontoRecibido(e.target.value)}
-                className="input text-lg"
-                placeholder="0.00"
+                className="input text-xl font-bold text-center bg-white"
+                placeholder={total.toFixed(2)}
                 autoFocus
               />
-              {cambio > 0 && (
-                <p className="mt-2 text-lg font-semibold text-green-600">
-                  Cambio: Bs. {cambio.toFixed(2)}
-                </p>
+              {cambioEfectivo > 0 && (
+                <div className="flex justify-between items-center bg-white p-2 rounded border border-emerald-300">
+                  <span className="text-xs font-semibold text-emerald-700">Cambio al cliente:</span>
+                  <span className="text-lg font-extrabold text-emerald-600">Bs. {cambioEfectivo.toFixed(2)}</span>
+                </div>
               )}
+            </div>
+          )}
+
+          {/* VENTA QR */}
+          {metodo === 'QR' && (
+            <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-xs text-sky-800 space-y-1">
+              <p className="font-semibold flex items-center gap-1.5">
+                <QrCode className="w-4 h-4 text-sky-600" />
+                Pago QR Simple
+              </p>
+              <p>El cobro de <strong>Bs. {total.toFixed(2)}</strong> nacerá en estado <em>PENDING</em> hasta su verificación bancaria en caja.</p>
+            </div>
+          )}
+
+          {/* VENTA A CRÉDITO */}
+          {metodo === 'CREDITO' && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-3">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 uppercase">
+                <Clock className="w-4 h-4 text-amber-600" />
+                Condiciones del Crédito (Cuenta por Cobrar)
+              </div>
+
+              <div>
+                <label className="block text-xs text-amber-800 mb-1">Fecha de vencimiento</label>
+                <input
+                  type="date"
+                  value={fechaVencimiento}
+                  onChange={(e) => setFechaVencimiento(e.target.value)}
+                  className="input text-sm bg-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-amber-800 mb-1">Anticipo / Abono inicial (opcional)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max={total}
+                  value={anticipoCredito}
+                  onChange={(e) => setAnticipoCredito(e.target.value)}
+                  className="input text-sm bg-white"
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div className="flex justify-between text-xs font-bold text-amber-900 border-t border-amber-200 pt-2">
+                <span>Saldo financiado a cartera:</span>
+                <span>Bs. {(total - (Number(anticipoCredito) || 0)).toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* PAGO MIXTO */}
+          {metodo === 'MIXTO' && (
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between text-xs font-semibold text-purple-900 uppercase">
+                <span className="flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-purple-600" />
+                  Desglose de Métodos
+                </span>
+                <span className={`font-mono ${Math.abs(diferenciaMixto) < 0.01 ? 'text-emerald-600 font-bold' : 'text-amber-600'}`}>
+                  {Math.abs(diferenciaMixto) < 0.01 ? 'Cubierto 100%' : `Resta: Bs. ${diferenciaMixto.toFixed(2)}`}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <label className="text-gray-600">Efectivo (Bs.)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={montoEfectivo}
+                    onChange={(e) => setMontoEfectivo(e.target.value)}
+                    className="input text-xs bg-white"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label className="text-gray-600">QR (Bs.)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={montoQr}
+                    onChange={(e) => setMontoQr(e.target.value)}
+                    className="input text-xs bg-white"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label className="text-gray-600">Tarjeta (Bs.)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={montoTarjeta}
+                    onChange={(e) => setMontoTarjeta(e.target.value)}
+                    className="input text-xs bg-white"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label className="text-gray-600">Transferencia (Bs.)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={montoTransfer}
+                    onChange={(e) => setMontoTransfer(e.target.value)}
+                    className="input text-xs bg-white"
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
             </div>
           )}
 
           <button
             onClick={handleConfirmar}
-            disabled={procesando || (metodo === 'EFECTIVO' && Number(montoRecibido || 0) < total)}
-            className="btn btn-success w-full py-3 text-lg"
+            disabled={esBotonDeshabilitado()}
+            className="btn btn-success w-full py-3 text-base font-bold shadow-md disabled:opacity-50"
           >
-            {procesando ? 'Procesando...' : 'Confirmar venta'}
+            {procesando ? 'Procesando transacción...' : 'Confirmar Venta Financiera'}
           </button>
         </div>
       </div>
