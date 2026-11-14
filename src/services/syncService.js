@@ -185,20 +185,32 @@ class SyncService {
 
       for (const venta of pendientes) {
         try {
+          const idempKey = venta.idempotency_key || `sync-${venta.temp_id}-${Date.now()}`;
+          const payload = {
+            almacen_id: venta.almacen_id,
+            cliente_id: venta.cliente_id || null,
+            cliente_nombre: venta.cliente_nombre || null,
+            cliente_nit: venta.cliente_nit || null,
+            detalles: venta.detalles || [],
+            descuento: venta.descuento || 0,
+            metodo_pago: venta.metodo_pago || 'EFECTIVO',
+            monto_recibido: venta.monto_recibido || null,
+            notas: venta.notas || '',
+            completar: venta.completar !== undefined ? venta.completar : true,
+            pagos: venta.pagos || [],
+            es_credito: venta.es_credito || false,
+            fecha_vencimiento: venta.fecha_vencimiento || null,
+            idempotency_key: idempKey,
+          };
+
           const response = await fetch(`${API_URL}/ventas`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${token}`,
+              'X-Idempotency-Key': idempKey,
             },
-            body: JSON.stringify({
-              almacen_id: venta.almacen_id,
-              detalles: venta.detalles,
-              metodo_pago: venta.metodo_pago,
-              cliente_nombre: venta.cliente_nombre,
-              cliente_nit: venta.cliente_nit,
-              notas: venta.notas || '',
-            }),
+            body: JSON.stringify(payload),
           });
 
           if (response.status === 401) {
@@ -212,13 +224,23 @@ class SyncService {
             break;
           }
 
+          const isReplay = response.headers.get('X-Idempotent-Replay') === 'true';
           if (response.ok) {
             // Si el servidor responde correctamente, el token vuelve a ser válido
             this._authErrorNotified = false;
             const ventaCreada = await response.json();
             await offlineDB.marcarVentaSincronizada(venta.temp_id);
             synced++;
-            console.log(`[Sync] Venta ${venta.temp_id} persistida bajo ID: ${ventaCreada.id}`);
+            console.log(`[Sync] Venta ${venta.temp_id} persistida (Replay: ${isReplay}) bajo ID: ${ventaCreada.id}`);
+          } else if (response.status === 409) {
+            const errorBody = await response.text();
+            if (errorBody.includes('en procesamiento') || errorBody.includes('PROCESSING')) {
+              console.warn(`[Sync] Transacción ${venta.temp_id} en procesamiento en servidor. Conservando en cola.`);
+            } else {
+              console.error(`[Sync] Conflicto de idempotencia en venta ${venta.temp_id}:`, errorBody);
+              await offlineDB.marcarVentaConConflicto(venta.temp_id, errorBody);
+              conflicts++;
+            }
           } else {
             if (response.status >= 400 && response.status < 500) {
               const errorBody = await response.text();

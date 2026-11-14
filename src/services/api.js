@@ -327,15 +327,26 @@ export const inventarioApi = {
   },
 }; // <--- CIERRE CORRECTO DEL OBJETO inventarioApi
 
-// ============ VENTAS API (con soporte offline) ============
+// ============ VENTAS API (con soporte offline e idempotencia) ============
 export const ventasApi = {
-  createVenta: async (data) => {
+  createVenta: async (data, customIdempKey = null) => {
     const detalles = data.detalles || [];
     const total = detalles.reduce((sum, item) => sum + (item.cantidad * item.precio_unitario), 0);
 
+    const idempotencyKey = customIdempKey || data.idempotency_key || (
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `idemp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+    );
+
+    const payload = {
+      ...data,
+      idempotency_key: idempotencyKey,
+    };
+
     if (!isOnline()) {
-      console.log('[API] Offline - guardando venta localmente');
-      const ventaOffline = await offlineDB.saveVentaPendiente(data);
+      console.log('[API] Offline - guardando venta localmente con clave:', idempotencyKey);
+      const ventaOffline = await offlineDB.saveVentaPendiente(payload);
       return {
         ...ventaOffline,
         offline: true,
@@ -348,13 +359,16 @@ export const ventasApi = {
     try {
       const response = await fetch(`${API_URL}/ventas`, {
         method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(data),
+        headers: {
+          ...getHeaders(),
+          'X-Idempotency-Key': idempotencyKey,
+        },
+        body: JSON.stringify(payload),
       });
       return handleResponse(response);
     } catch (error) {
       console.log('[API] Error de red, guardando offline:', error.message);
-      const ventaOffline = await offlineDB.saveVentaPendiente(data);
+      const ventaOffline = await offlineDB.saveVentaPendiente(payload);
       return {
         ...ventaOffline,
         offline: true,
@@ -396,27 +410,101 @@ export const ventasApi = {
     return handleResponse(response);
   },
 
-  cancelarVenta: async (id, motivo = '') => {
-    const response = await fetch(`${API_URL}/ventas/${id}/cancelar`, {
-      method: 'POST',
+  getVentaPorNumero: async (numero) => {
+    const response = await fetch(`${API_URL}/ventas/numero/${numero}`, {
       headers: getHeaders(),
-      body: JSON.stringify({ motivo }),
     });
     return handleResponse(response);
   },
 
-  getClientes: async () => {
-    const response = await fetch(`${API_URL}/clientes`, {
+  cancelarVenta: async (id, data = {}, customIdempKey = null) => {
+    const motivo = typeof data === 'string' ? data : (data.motivo || 'Cancelación de venta');
+    const devolverEfectivo = typeof data === 'object' && data.devolver_efectivo !== undefined ? data.devolver_efectivo : false;
+
+    const idempotencyKey = customIdempKey || (
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `idemp-canc-${Date.now()}`
+    );
+
+    const response = await fetch(`${API_URL}/ventas/${id}/cancelar`, {
+      method: 'POST',
+      headers: {
+        ...getHeaders(),
+        'X-Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify({
+        motivo,
+        devolver_efectivo: devolverEfectivo,
+      }),
+    });
+    return handleResponse(response);
+  },
+
+  getAuditoriaCancelacion: async (id) => {
+    const response = await fetch(`${API_URL}/ventas/${id}/auditoria-cancelacion`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  getHistorialPagos: async (ventaId) => {
+    const response = await fetch(`${API_URL}/ventas/${ventaId}/historial`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  registrarPagoVenta: async (ventaId, data, customIdempKey = null) => {
+    const idempotencyKey = customIdempKey || (
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `idemp-pago-${Date.now()}`
+    );
+
+    const response = await fetch(`${API_URL}/ventas/${ventaId}/pagos`, {
+      method: 'POST',
+      headers: {
+        ...getHeaders(),
+        'X-Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  getClientes: async (params = {}) => {
+    const queryParams = new URLSearchParams(params);
+    const url = Object.keys(params).length > 0 ? `${API_URL}/clientes?${queryParams}` : `${API_URL}/clientes`;
+    const response = await fetch(url, {
       headers: getHeaders(),
     });
     return handleResponse(response);
   },
 
   buscarClientePorTelefono: async (telefono) => {
-    const response = await fetch(`${API_URL}/clientes/telefono/${telefono}`, {
+    const response = await fetch(`${API_URL}/clientes/telefono/${encodeURIComponent(telefono)}`, {
       headers: getHeaders(),
     });
     if (response.status === 404) return null;
+    return handleResponse(response);
+  },
+
+  crearCliente: async (data) => {
+    const response = await fetch(`${API_URL}/clientes`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  actualizarCliente: async (id, data) => {
+    const response = await fetch(`${API_URL}/clientes/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
     return handleResponse(response);
   },
 
@@ -454,6 +542,125 @@ export const ventasApi = {
 
   getVentasPendientes: async () => {
     return offlineDB.getVentasPendientes();
+  },
+};
+
+// ============ PAGOS API (Ciclo de Vida Financiero) ============
+export const pagosApi = {
+  confirmarPago: async (pagoId, data = {}, customIdempKey = null) => {
+    const idempotencyKey = customIdempKey || (
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `idemp-conf-${Date.now()}`
+    );
+
+    const response = await fetch(`${API_URL}/ventas/pagos/${pagoId}/confirmar`, {
+      method: 'POST',
+      headers: {
+        ...getHeaders(),
+        'X-Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  marcarPagoFallido: async (pagoId, motivo) => {
+    const response = await fetch(`${API_URL}/ventas/pagos/${pagoId}/marcar-fallido`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ motivo }),
+    });
+    return handleResponse(response);
+  },
+
+  revertirPago: async (pagoId, data, customIdempKey = null) => {
+    const idempotencyKey = customIdempKey || (
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `idemp-rev-${Date.now()}`
+    );
+
+    const response = await fetch(`${API_URL}/ventas/pagos/${pagoId}/revertir`, {
+      method: 'POST',
+      headers: {
+        ...getHeaders(),
+        'X-Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  conciliarPagoHistorico: async (pagoId, data, customIdempKey = null) => {
+    const idempotencyKey = customIdempKey || (
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `idemp-conc-${Date.now()}`
+    );
+
+    const response = await fetch(`${API_URL}/ventas/pagos/${pagoId}/conciliar`, {
+      method: 'POST',
+      headers: {
+        ...getHeaders(),
+        'X-Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+};
+
+// ============ CARTERA Y CUENTAS POR COBRAR API ============
+export const carteraApi = {
+  getCartera: async (filtros = {}) => {
+    const queryParams = new URLSearchParams(filtros);
+    const url = Object.keys(filtros).length > 0
+      ? `${API_URL}/ventas/cartera?${queryParams}`
+      : `${API_URL}/ventas/cartera`;
+    const response = await fetch(url, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  getCarteraPorCliente: async () => {
+    const response = await fetch(`${API_URL}/ventas/cartera/clientes`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  getCuentaPorCobrar: async (cuentaId) => {
+    const response = await fetch(`${API_URL}/ventas/cartera/${cuentaId}`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  registrarAbono: async (cuentaId, data, customIdempKey = null) => {
+    const idempotencyKey = customIdempKey || (
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `idemp-abono-${Date.now()}`
+    );
+
+    const response = await fetch(`${API_URL}/ventas/cartera/${cuentaId}/abono`, {
+      method: 'POST',
+      headers: {
+        ...getHeaders(),
+        'X-Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify(data),
+    });
+    return handleResponse(response);
+  },
+
+  getEstadoCuentaCliente: async (clienteId) => {
+    const response = await fetch(`${API_URL}/ventas/clientes/${clienteId}/estado-cuenta`, {
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
   },
 };
 
@@ -505,5 +712,7 @@ export default {
   auth: authApi,
   inventario: inventarioApi,
   ventas: ventasApi,
+  pagos: pagosApi,
+  cartera: carteraApi,
   admin: adminApi,
 };

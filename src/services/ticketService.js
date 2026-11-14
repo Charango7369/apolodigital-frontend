@@ -242,6 +242,10 @@ export function generarTicketHTML(venta, config = CONFIG_NEGOCIO) {
         <span>Método:</span>
         <span>${formatMetodoPago(venta.metodo_pago)}</span>
       </div>
+      <div class="total-row">
+        <span>Estado:</span>
+        <span>${formatEstadoFinanciero(venta.estado_financiero)}</span>
+      </div>
     </div>
     
     <!-- Footer -->
@@ -349,6 +353,7 @@ export function generarTicketTexto(venta, config = CONFIG_NEGOCIO) {
   ticket += linea + '\n';
   ticket += fila('TOTAL:', `Bs. ${Number(venta.total).toFixed(2)}`) + '\n';
   ticket += fila('Pago:', formatMetodoPago(venta.metodo_pago)) + '\n';
+  ticket += fila('Estado:', formatEstadoFinanciero(venta.estado_financiero)) + '\n';
   ticket += linea + '\n';
   
   // Footer
@@ -362,3 +367,14 @@ export default {
   generarTicketTexto,
   imprimirTicket,
 };
+
+export function formatEstadoFinanciero(estado) {
+  const estados = {
+    'PAID': 'COBRADO',
+    'PAID_PRESUNTIVO': 'PRESUNTIVO (HISTÓRICO)',
+    'PARTIAL': 'PAGO PARCIAL',
+    'CREDIT': 'A CRÉDITO',
+    'NOT_APPLICABLE': 'NO APLICA',
+  };
+  return estados[estado] || estado || 'COBRADO';
+}

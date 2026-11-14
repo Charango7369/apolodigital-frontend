@@ -251,8 +251,15 @@ class OfflineDB {
       const tx = this.db.transaction('ventas_pendientes', 'readwrite');
       const store = tx.objectStore('ventas_pendientes');
       
+      const idempotencyKey = venta.idempotency_key || (
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `idemp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+      );
+
       const ventaOffline = {
         ...venta,
+        idempotency_key: idempotencyKey,
         created_at: new Date().toISOString(),
         synced: false,
       };
@@ -260,7 +267,7 @@ class OfflineDB {
       const request = store.add(ventaOffline);
       
       request.onsuccess = () => {
-        console.log('[OfflineDB] Venta guardada offline:', request.result);
+        console.log('[OfflineDB] Venta guardada offline con clave de idempotencia:', idempotencyKey, 'temp_id:', request.result);
         resolve({ ...ventaOffline, temp_id: request.result });
       };
       request.onerror = () => reject(request.error);
@@ -294,6 +301,26 @@ class OfflineDB {
         const venta = request.result;
         if (venta) {
           venta.synced = true;
+          store.put(venta);
+        }
+        resolve();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async marcarVentaConConflicto(tempId, errorMsg) {
+    await this.init();
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('ventas_pendientes', 'readwrite');
+      const store = tx.objectStore('ventas_pendientes');
+      const request = store.get(tempId);
+      
+      request.onsuccess = () => {
+        const venta = request.result;
+        if (venta) {
+          venta.synced = 'conflict';
+          venta.sync_error = errorMsg;
           store.put(venta);
         }
         resolve();
