@@ -1,5 +1,5 @@
 import { Printer, X, CheckCircle } from 'lucide-react';
-import { imprimirTicket } from '../services/ticketService';
+import { imprimirTicket, formatearFechaHoraBolivia } from '../services/ticketService';
 
 /**
  * Modal de vista previa y impresión de ticket
@@ -16,12 +16,7 @@ export default function TicketPreview({ venta, onClose, configNegocio }) {
   };
 
   const items = venta.detalles || venta.items || [];
-// HORA ZULU
-  const fecha = new Date(
-    venta.created_at 
-      ? (venta.created_at.endsWith('Z') ? venta.created_at : `${venta.created_at}Z`) 
-      : new Date()
-  );
+  const { fechaStr, horaStr } = formatearFechaHoraBolivia(venta.created_at);
   const handlePrint = () => {
     imprimirTicket(venta, config);
   };
@@ -69,7 +64,7 @@ export default function TicketPreview({ venta, onClose, configNegocio }) {
               </div>
               <div className="flex justify-between">
                 <span>Fecha:</span>
-                <span>{fecha.toLocaleDateString('es-BO')} {fecha.toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' })}</span>
+                <span>{fechaStr} {horaStr}</span>
               </div>
               <div className="flex justify-between">
                 <span>Cliente:</span>

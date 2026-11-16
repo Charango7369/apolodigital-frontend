@@ -12,31 +12,45 @@ const CONFIG_NEGOCIO = {
   mensaje_pie: '¡Gracias por su compra!',
 };
 
-/**
- * Genera el HTML del ticket para imprimir
- */
-export function generarTicketHTML(venta, config = CONFIG_NEGOCIO) {
-  // 1. Interceptar la fecha del backend y forzarla a UTC absoluto
-  const rawDate = venta.created_at;
-  const fechaSegura = (typeof rawDate === 'string' && !rawDate.endsWith('Z')) 
-    ? `${rawDate}Z` 
-    : (rawDate || new Date());
-    
-  const fecha = new Date(fechaSegura);
+export function parseFechaSegura(rawDate) {
+  if (!rawDate) return new Date();
+  if (rawDate instanceof Date) return isNaN(rawDate.getTime()) ? new Date() : rawDate;
+  if (typeof rawDate === 'string') {
+    const trimmed = rawDate.trim();
+    if (trimmed.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(trimmed)) {
+      const d = new Date(trimmed);
+      if (!isNaN(d.getTime())) return d;
+    }
+    const dWithZ = new Date(trimmed.replace(' ', 'T') + 'Z');
+    if (!isNaN(dWithZ.getTime())) return dWithZ;
+    const dNormal = new Date(trimmed);
+    if (!isNaN(dNormal.getTime())) return dNormal;
+  }
+  const fallback = new Date(rawDate);
+  return isNaN(fallback.getTime()) ? new Date() : fallback;
+}
 
-  // 2. Blindar el formato con la zona horaria geográfica explícita
+export function formatearFechaHoraBolivia(rawDate) {
+  const fecha = parseFechaSegura(rawDate);
   const fechaStr = fecha.toLocaleDateString('es-BO', {
     timeZone: 'America/La_Paz',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
   });
-  
   const horaStr = fecha.toLocaleTimeString('es-BO', {
     timeZone: 'America/La_Paz',
     hour: '2-digit',
     minute: '2-digit',
   });
+  return { fecha, fechaStr, horaStr, textoCompleto: `${fechaStr} ${horaStr}` };
+}
+
+/**
+ * Genera el HTML del ticket para imprimir
+ */
+export function generarTicketHTML(venta, config = CONFIG_NEGOCIO) {
+  const { fechaStr, horaStr } = formatearFechaHoraBolivia(venta.created_at);
 
   const items = venta.detalles || venta.items || [];
 
@@ -318,11 +332,7 @@ export function generarTicketTexto(venta, config = CONFIG_NEGOCIO) {
     return izq + ' '.repeat(Math.max(1, espacios)) + der;
   };
 
-  const fecha = new Date(
-    venta.created_at 
-      ? (venta.created_at.endsWith('Z') ? venta.created_at : `${venta.created_at}Z`) 
-      : new Date()
-  );
+  const { fechaStr, horaStr } = formatearFechaHoraBolivia(venta.created_at);
   const items = venta.detalles || venta.items || [];
 
   let ticket = '';
@@ -335,8 +345,8 @@ export function generarTicketTexto(venta, config = CONFIG_NEGOCIO) {
   
   // Info
   ticket += fila('Ticket:', `#${venta.numero || venta.temp_id || '---'}`) + '\n';
-  ticket += fila('Fecha:', fecha.toLocaleDateString('es-BO')) + '\n';
-  ticket += fila('Hora:', fecha.toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' })) + '\n';
+  ticket += fila('Fecha:', fechaStr) + '\n';
+  ticket += fila('Hora:', horaStr) + '\n';
   ticket += fila('Cliente:', (venta.cliente_nombre || 'Mostrador').substring(0, 15)) + '\n';
   ticket += lineaPunteada + '\n';
   
