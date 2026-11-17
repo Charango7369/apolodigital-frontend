@@ -594,11 +594,17 @@ export default function POS() {
 
 function ModalPago({ total, procesando, onClose, onPagar }) {
   const [metodo, setMetodo] = useState('EFECTIVO')
-  const [montoRecibido, setMontoRecibido] = useState('')
+  const [montoRecibido, setMontoRecibido] = useState(total ? total.toFixed(2) : '')
   const [clientes, setClientes] = useState([])
   const [clienteSeleccionadoId, setClienteSeleccionadoId] = useState('')
   const [clienteNombre, setClienteNombre] = useState('')
   const [clienteNit, setClienteNit] = useState('')
+
+  useEffect(() => {
+    if (total && !montoRecibido) {
+      setMontoRecibido(total.toFixed(2))
+    }
+  }, [total])
 
   // Para Crédito
   const [fechaVencimiento, setFechaVencimiento] = useState(() => {
@@ -645,8 +651,9 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
   const sumMixto = (Number(montoEfectivo) || 0) + (Number(montoQr) || 0) + (Number(montoTarjeta) || 0) + (Number(montoTransfer) || 0)
   const diferenciaMixto = total - sumMixto
 
-  const cambioEfectivo = metodo === 'EFECTIVO' && montoRecibido
-    ? Number(montoRecibido) - total
+  const efectivoNum = montoRecibido === '' ? total : Number(montoRecibido)
+  const cambioEfectivo = metodo === 'EFECTIVO' && efectivoNum > total
+    ? efectivoNum - total
     : 0
 
   const handleConfirmar = () => {
@@ -696,12 +703,14 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
       return
     }
 
+    const efectivoFinal = montoRecibido === '' ? total : Number(montoRecibido)
+
     onPagar({
       metodoPago: metodo,
       clienteId: clienteSeleccionadoId || null,
       clienteNombre,
       clienteNit,
-      montoRecibido: montoRecibido ? Number(montoRecibido) : null,
+      montoRecibido: metodo === 'EFECTIVO' ? efectivoFinal : null,
       pagos: [{ monto: total, metodo_pago: metodo }],
       esCredito: false,
     })
@@ -709,7 +718,10 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
 
   const esBotonDeshabilitado = () => {
     if (procesando) return true
-    if (metodo === 'EFECTIVO' && Number(montoRecibido || 0) < total) return true
+    if (metodo === 'EFECTIVO') {
+      const efectivo = montoRecibido === '' ? total : Number(montoRecibido)
+      if (isNaN(efectivo) || efectivo < total) return true
+    }
     if (metodo === 'CREDITO' && !clienteSeleccionadoId) return true
     if (metodo === 'MIXTO' && Math.abs(diferenciaMixto) > 0.01) return true
     return false
@@ -802,15 +814,25 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
           {/* VENTA EFECTIVO */}
           {metodo === 'EFECTIVO' && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-2">
-              <label className="block text-xs font-semibold text-emerald-800 uppercase">
-                Monto recibido en efectivo
-              </label>
+              <div className="flex justify-between items-center">
+                <label className="block text-xs font-semibold text-emerald-800 uppercase">
+                  Monto recibido en efectivo
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setMontoRecibido(total.toFixed(2))}
+                  className="text-[11px] font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 px-2 py-0.5 rounded transition-colors"
+                >
+                  Pago Exacto
+                </button>
+              </div>
               <input
                 type="number"
                 step="0.01"
                 min={total}
                 value={montoRecibido}
                 onChange={(e) => setMontoRecibido(e.target.value)}
+                onFocus={(e) => e.target.select()}
                 className="input text-xl font-bold text-center bg-white"
                 placeholder={total.toFixed(2)}
                 autoFocus
@@ -821,6 +843,26 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
                   <span className="text-lg font-extrabold text-emerald-600">Bs. {cambioEfectivo.toFixed(2)}</span>
                 </div>
               )}
+              {/* Sugerencias de billetes rápidos */}
+              <div className="flex gap-1.5 justify-center flex-wrap pt-1">
+                {[total, Math.ceil(total / 10) * 10, Math.ceil(total / 50) * 50, Math.ceil(total / 100) * 100]
+                  .filter((val, idx, arr) => val >= total && arr.indexOf(val) === idx)
+                  .slice(0, 4)
+                  .map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setMontoRecibido(val.toFixed(2))}
+                      className={`text-xs px-2.5 py-1 rounded font-semibold transition-colors border ${
+                        Number(montoRecibido) === val
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                          : 'bg-white hover:bg-emerald-100 border-emerald-300 text-emerald-900'
+                      }`}
+                    >
+                      Bs. {val.toFixed(2)}
+                    </button>
+                  ))}
+              </div>
             </div>
           )}
 
