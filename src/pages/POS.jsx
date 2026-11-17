@@ -656,12 +656,30 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
     ? efectivoNum - total
     : 0
 
-  const handleConfirmar = () => {
+  const handleConfirmar = async () => {
     if (metodo === 'CREDITO') {
-      if (!clienteSeleccionadoId) {
-        alert('Para ventas a crédito debe seleccionar un cliente registrado en el sistema.')
-        return
+      let finalClienteId = clienteSeleccionadoId
+
+      if (!finalClienteId) {
+        if (!clienteNombre.trim()) {
+          alert('Para ventas a crédito debe seleccionar un cliente o escribir su nombre para registrarlo.')
+          return
+        }
+        try {
+          const nuevoCliente = await ventasApi.crearCliente({
+            nombre: clienteNombre.trim(),
+            nit: clienteNit.trim() || undefined
+          })
+          finalClienteId = nuevoCliente.id
+          setClientes((prev) => [...prev, nuevoCliente])
+          setClienteSeleccionadoId(nuevoCliente.id)
+        } catch (err) {
+          console.error('Error al registrar nuevo cliente:', err)
+          alert(`No se pudo registrar al cliente: ${err.message || 'Error desconocido'}`)
+          return
+        }
       }
+
       const pagos = []
       const ant = Number(anticipoCredito) || 0
       if (ant > 0) {
@@ -669,9 +687,9 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
       }
       onPagar({
         metodoPago: 'CREDITO',
-        clienteId: clienteSeleccionadoId,
-        clienteNombre,
-        clienteNit,
+        clienteId: finalClienteId,
+        clienteNombre: clienteNombre.trim(),
+        clienteNit: clienteNit.trim() || null,
         montoRecibido: ant > 0 ? ant : null,
         pagos,
         esCredito: true,
@@ -722,7 +740,10 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
       const efectivo = montoRecibido === '' ? total : Number(montoRecibido)
       if (isNaN(efectivo) || efectivo < total) return true
     }
-    if (metodo === 'CREDITO' && !clienteSeleccionadoId) return true
+    if (metodo === 'CREDITO') {
+      if (!clienteSeleccionadoId && !clienteNombre.trim()) return true
+      if (anticipoCredito && (Number(anticipoCredito) >= total || Number(anticipoCredito) < 0)) return true
+    }
     if (metodo === 'MIXTO' && Math.abs(diferenciaMixto) > 0.01) return true
     return false
   }
@@ -781,7 +802,7 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
             <select
               value={clienteSeleccionadoId}
               onChange={(e) => handleSelectCliente(e.target.value)}
-              className={`input text-sm ${metodo === 'CREDITO' && !clienteSeleccionadoId ? 'border-amber-400 bg-amber-50' : ''}`}
+              className={`input text-sm ${metodo === 'CREDITO' && !clienteSeleccionadoId && !clienteNombre.trim() ? 'border-amber-400 bg-amber-50' : ''}`}
             >
               <option value="">-- Cliente Mostrador / Sin registrar --</option>
               {clientes.map((c) => (
@@ -792,21 +813,33 @@ function ModalPago({ total, procesando, onClose, onPagar }) {
             </select>
 
             {!clienteSeleccionadoId && (
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                <input
-                  type="text"
-                  value={clienteNombre}
-                  onChange={(e) => setClienteNombre(e.target.value)}
-                  className="input text-xs"
-                  placeholder="Nombre mostrador..."
-                />
-                <input
-                  type="text"
-                  value={clienteNit}
-                  onChange={(e) => setClienteNit(e.target.value)}
-                  className="input text-xs"
-                  placeholder="NIT / CI factura..."
-                />
+              <div className="space-y-1.5 mt-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={clienteNombre}
+                    onChange={(e) => setClienteNombre(e.target.value)}
+                    className={`input text-xs ${metodo === 'CREDITO' && !clienteNombre.trim() ? 'border-amber-400 bg-amber-50/60' : ''}`}
+                    placeholder={metodo === 'CREDITO' ? "Nombre del cliente a crédito (Obligatorio)..." : "Nombre mostrador..."}
+                  />
+                  <input
+                    type="text"
+                    value={clienteNit}
+                    onChange={(e) => setClienteNit(e.target.value)}
+                    className="input text-xs"
+                    placeholder="NIT / CI factura..."
+                  />
+                </div>
+                {metodo === 'CREDITO' && (
+                  <p className="text-[11px] text-amber-800 bg-amber-50/80 p-2 rounded-lg border border-amber-200 flex items-center gap-1.5">
+                    <UserCheck className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                    <span>
+                      {clienteNombre.trim()
+                        ? <>Se registrará a <strong>{clienteNombre.trim()}</strong> automáticamente en tu cartera de clientes.</>
+                        : 'Escribe el nombre del cliente para abrir su cuenta y activar el botón de cobro.'}
+                    </span>
+                  </p>
+                )}
               </div>
             )}
           </div>
