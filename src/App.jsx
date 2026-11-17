@@ -15,6 +15,7 @@ import Almacenes from './pages/Almacenes'
 import Vencimientos from './pages/Vencimientos'
 import DashboardFinanciero from './components/DashboardFinanciero'; // Ajusta la ruta según tu estructura
 import ReporteStockActual from './pages/ReporteStockActual'
+import Cartera from './pages/Cartera'
 
 function PrivateRoute({ children }) {
   const { token, loading } = useAuth()
@@ -68,6 +69,7 @@ export default function App() {
         <Route path="proveedores" element={<Proveedores />} />
         <Route path="almacenes" element={<Almacenes />} />
         <Route path="ventas" element={<Ventas />} />
+        <Route path="cartera" element={<Cartera />} />
         <Route path="pos" element={<POS />} />
         <Route path="reportes" element={<Reportes />} />
         <Route path="/financiero" element={<DashboardFinanciero />} />

@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ventasApi } from '../services/api'
-import { BarChart3, Calendar, TrendingUp, DollarSign, Receipt, CreditCard } from 'lucide-react'
+import { BarChart3, Calendar, TrendingUp, DollarSign, Receipt, CreditCard, ArrowRight } from 'lucide-react'
 
 export default function Reportes() {
+  const navigate = useNavigate()
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0])
   const [reporteVentas, setReporteVentas] = useState(null)
   const [reporteCaja, setReporteCaja] = useState(null)
@@ -81,7 +83,7 @@ export default function Reportes() {
             <div>
               <p className="text-sm text-gray-500">Total vendido</p>
               <p className="text-2xl font-bold text-gray-900">
-                {formatMoney(reporteCaja?.total_general)}
+                {formatMoney(reporteVentas?.monto_total ?? reporteCaja?.total_general)}
               </p>
             </div>
           </div>
@@ -129,12 +131,27 @@ export default function Reportes() {
             { label: 'QR', value: reporteCaja?.total_qr, color: 'bg-blue-100 text-blue-700', icon: '📱' },
             { label: 'Tarjeta', value: reporteCaja?.total_tarjeta, color: 'bg-purple-100 text-purple-700', icon: '💳' },
             { label: 'Transferencia', value: reporteCaja?.total_transferencia, color: 'bg-yellow-100 text-yellow-700', icon: '🏦' },
-            { label: 'Crédito', value: reporteCaja?.total_credito, color: 'bg-red-100 text-red-700', icon: '📝' },
+            { label: 'Crédito', value: reporteCaja?.total_credito, color: 'bg-red-100 text-red-700', icon: '📝', esCredito: true },
           ].map((item) => (
-            <div key={item.label} className={`p-4 rounded-xl ${item.color}`}>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xl">{item.icon}</span>
-                <span className="font-medium">{item.label}</span>
+            <div 
+              key={item.label} 
+              className={`p-4 rounded-xl ${item.color} ${item.esCredito && Number(item.value) > 0 ? 'cursor-pointer hover:ring-2 hover:ring-red-400 transition-all' : ''}`}
+              onClick={() => {
+                if (item.esCredito && Number(item.value) > 0) {
+                  navigate('/cartera')
+                }
+              }}
+            >
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{item.icon}</span>
+                  <span className="font-medium">{item.label}</span>
+                </div>
+                {item.esCredito && Number(item.value) > 0 && (
+                  <span className="text-xs bg-red-200/80 hover:bg-red-300 text-red-900 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                    Abonar <ArrowRight className="w-3 h-3" />
+                  </span>
+                )}
               </div>
               <p className="text-2xl font-bold">{formatMoney(item.value)}</p>
             </div>
@@ -143,36 +160,40 @@ export default function Reportes() {
       </div>
 
       {/* Gráfico simple de métodos */}
-      {reporteCaja && Number(reporteCaja.total_general) > 0 && (
+      {reporteCaja && (Number(reporteCaja.total_general) > 0 || Number(reporteCaja.total_credito) > 0) && (
         <div className="card">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">
             Distribución de pagos
           </h2>
           
           <div className="space-y-3">
-            {[
-              { label: 'Efectivo', value: reporteCaja.total_efectivo, color: 'bg-green-500' },
-              { label: 'QR', value: reporteCaja.total_qr, color: 'bg-blue-500' },
-              { label: 'Tarjeta', value: reporteCaja.total_tarjeta, color: 'bg-purple-500' },
-              { label: 'Transferencia', value: reporteCaja.total_transferencia, color: 'bg-yellow-500' },
-              { label: 'Crédito', value: reporteCaja.total_credito, color: 'bg-red-500' },
-            ].filter(item => Number(item.value) > 0).map((item) => {
-              const porcentaje = (Number(item.value) / Number(reporteCaja.total_general)) * 100
-              return (
-                <div key={item.label}>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="font-medium">{item.label}</span>
-                    <span className="text-gray-500">{porcentaje.toFixed(1)}%</span>
+            {(() => {
+              const baseTotal = Number(reporteVentas?.monto_total) || 
+                (Number(reporteCaja.total_efectivo) + Number(reporteCaja.total_qr) + Number(reporteCaja.total_tarjeta) + Number(reporteCaja.total_transferencia) + Number(reporteCaja.total_credito)) || 1
+              return [
+                { label: 'Efectivo', value: reporteCaja.total_efectivo, color: 'bg-green-500' },
+                { label: 'QR', value: reporteCaja.total_qr, color: 'bg-blue-500' },
+                { label: 'Tarjeta', value: reporteCaja.total_tarjeta, color: 'bg-purple-500' },
+                { label: 'Transferencia', value: reporteCaja.total_transferencia, color: 'bg-yellow-500' },
+                { label: 'Crédito', value: reporteCaja.total_credito, color: 'bg-red-500' },
+              ].filter(item => Number(item.value) > 0).map((item) => {
+                const porcentaje = (Number(item.value) / baseTotal) * 100
+                return (
+                  <div key={item.label}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="font-medium">{item.label}</span>
+                      <span className="text-gray-500">{porcentaje.toFixed(1)}%</span>
+                    </div>
+                    <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${item.color} transition-all duration-500`}
+                        style={{ width: `${porcentaje}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full ${item.color} transition-all duration-500`}
-                      style={{ width: `${porcentaje}%` }}
-                    />
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })
+            })()}
           </div>
         </div>
       )}

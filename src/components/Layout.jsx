@@ -19,7 +19,8 @@ import {
   Building2,
   Warehouse,
   AlertTriangle,
-  TrendingUp
+  TrendingUp,
+  CreditCard
 } from 'lucide-react'
 
 const navigation = [
@@ -32,6 +33,7 @@ const navigation = [
   { name: 'Vencimientos', href: '/vencimientos', icon: AlertTriangle },
   { name: 'Proveedores', href: '/proveedores', icon: Truck },
   { name: 'Ventas', href: '/ventas', icon: Receipt },
+  { name: 'Cartera', href: '/cartera', icon: CreditCard },
   { name: 'Reportes', href: '/reportes', icon: BarChart3 },
   { name: 'Stock Actual', href: '/reportes/stock-actual', icon: Package },
   { name: 'Financiero', href: '/financiero', icon: TrendingUp },

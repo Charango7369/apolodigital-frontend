@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ventasApi, pagosApi } from '../services/api'
-import { Receipt, Eye, XCircle, Calendar, CheckCircle2, AlertTriangle, Clock, Banknote, QrCode } from 'lucide-react'
+import { Receipt, Eye, XCircle, Calendar, CheckCircle2, AlertTriangle, Clock, Banknote, QrCode, CreditCard } from 'lucide-react'
 
 export default function Ventas() {
+  const navigate = useNavigate()
   const [ventas, setVentas] = useState([])
   const [loading, setLoading] = useState(true)
   const [filtroEstado, setFiltroEstado] = useState('')
@@ -280,14 +282,33 @@ export default function Ventas() {
 
               {/* Cuenta por cobrar si existe */}
               {ventaDetalle.cuenta_por_cobrar && (
-                <div className="bg-amber-50 border border-amber-200 p-2.5 rounded text-xs text-amber-900 flex justify-between items-center">
+                <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-xs text-amber-900 flex justify-between items-center gap-2">
                   <div>
-                    <p className="font-semibold">Cartera / Crédito pendiente</p>
+                    <p className="font-semibold text-sm">Cartera / Crédito pendiente</p>
                     <p className="text-[11px] text-amber-700">Vence: {ventaDetalle.cuenta_por_cobrar.fecha_vencimiento || 'Sin fecha'}</p>
+                    <p className="text-xs font-bold text-amber-900 mt-0.5">
+                      Saldo Deuda: Bs. {Number(ventaDetalle.cuenta_por_cobrar.saldo_pendiente).toFixed(2)}
+                    </p>
                   </div>
-                  <span className="font-extrabold text-amber-800 text-sm">
-                    Bs. {Number(ventaDetalle.cuenta_por_cobrar.saldo_pendiente).toFixed(2)}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {Number(ventaDetalle.cuenta_por_cobrar.saldo_pendiente) > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVentaDetalle(null)
+                          navigate('/cartera', { state: { ticket: ventaDetalle.numero } })
+                        }}
+                        className="btn btn-sm bg-emerald-600 hover:bg-emerald-700 text-white font-semibold flex items-center gap-1.5 shadow-sm px-3 py-1.5 rounded-lg text-xs"
+                      >
+                        <CreditCard className="w-3.5 h-3.5" />
+                        Abonar
+                      </button>
+                    ) : (
+                      <span className="badge bg-emerald-100 text-emerald-800 font-semibold px-2 py-1 rounded">
+                        Liquidada
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
 
